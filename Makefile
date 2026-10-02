@@ -9,7 +9,7 @@ APP_BUNDLE := SushiTray.app
 APP_PATH := $(APP_BUNDLE)/Contents/MacOS/SushiTray
 PLIST_PATH := $(APP_BUNDLE)/Contents/Info.plist
 ICONS_DIR := $(APP_BUNDLE)/Contents/Resources
-ICON_SRC := assets/sushi-icon.png
+ICON_SRC := assets/icon.png
 
 define resolve_binary
 $(shell \
@@ -108,5 +108,5 @@ help:
 	@echo "  build / build-debug / build-release"
 	@echo "  bundle / bundle-debug / bundle-release"
 	@echo "  run / run-release"
-	@echo "  icons    regenerate from assets/sushi-icon.png"
+	@echo "  icons    regenerate from assets/icon.png"
 	@echo "  clean / resolve / xcode"

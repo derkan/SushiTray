@@ -214,6 +214,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.runModal()
             return
         }
+
+        let workingDirectory = AgentLauncher.chooseWorkingDirectory(
+            agent: agent,
+            startingDirectory: config.lastAgentWorkingDirectory
+        )
+        config.lastAgentWorkingDirectory = workingDirectory
+
         let conn = config.connection
         let base = URL(string: "http://\(conn.host):\(conn.port)")
             ?? URL(string: "http://127.0.0.1:12345")!
@@ -221,11 +228,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let path = ServeCommandParser.modelPath(from: tokens) {
             modelID = (path as NSString).lastPathComponent
         }
+
+        var terminal = config.preferredTerminal
+        if !terminal.isInstalled {
+            terminal = PreferredTerminal.default
+        }
+
         AgentLauncher.launch(
             agent: agent,
             sushiBinary: binary,
             baseURL: base,
-            modelID: modelID
+            modelID: modelID,
+            workingDirectory: workingDirectory,
+            terminal: terminal
         )
     }
 

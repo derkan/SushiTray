@@ -54,7 +54,7 @@ UI reference: oMLX-style `NSMenu`. Engineering reference: sibling `LLMBrain` pro
 SushiTray/
 ├── Makefile
 ├── Package.swift
-├── assets/sushi-icon.png
+├── assets/icon.png
 └── SushiTray/
     ├── AppEntry.swift
     ├── AppDelegate.swift

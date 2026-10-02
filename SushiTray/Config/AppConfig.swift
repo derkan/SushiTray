@@ -14,6 +14,8 @@ final class AppConfig: ObservableObject {
     private let defaults = UserDefaults.standard
     private let commandKey = "serveCommand"
     private let autoStartKey = "autoStartServer"
+    private let preferredTerminalKey = "preferredTerminal"
+    private let lastAgentDirectoryKey = "lastAgentWorkingDirectory"
     private let cachedModelsKey = "cachedModels"
 
     @Published var serveCommand: String {
@@ -23,6 +25,22 @@ final class AppConfig: ObservableObject {
     /// When true, start sushi serve on app launch. Default: true.
     @Published var autoStartServer: Bool {
         didSet { defaults.set(autoStartServer, forKey: autoStartKey) }
+    }
+
+    /// Terminal app used for `sushi launch` agents.
+    @Published var preferredTerminal: PreferredTerminal {
+        didSet { defaults.set(preferredTerminal.rawValue, forKey: preferredTerminalKey) }
+    }
+
+    /// Last directory chosen for an agent launch (panel starting point).
+    @Published var lastAgentWorkingDirectory: String? {
+        didSet {
+            if let lastAgentWorkingDirectory {
+                defaults.set(lastAgentWorkingDirectory, forKey: lastAgentDirectoryKey)
+            } else {
+                defaults.removeObject(forKey: lastAgentDirectoryKey)
+            }
+        }
     }
 
     private init() {
@@ -36,6 +54,14 @@ final class AppConfig: ObservableObject {
         } else {
             autoStartServer = defaults.bool(forKey: autoStartKey)
         }
+        if let raw = defaults.string(forKey: preferredTerminalKey),
+           let terminal = PreferredTerminal(rawValue: raw)
+        {
+            preferredTerminal = terminal
+        } else {
+            preferredTerminal = .default
+        }
+        lastAgentWorkingDirectory = defaults.string(forKey: lastAgentDirectoryKey)
     }
 
     var logFilePath: String {

@@ -5,7 +5,7 @@ macOS menu bar app for running and controlling a local [sushi](https://github.co
 Start and stop `sushi serve` from the tray, watch live prefill/decode tok/s, browse models, and open the built-in chat UI when the server is ready.
 
 <p align="center">
-  <img src="assets/sushi-icon.png" alt="SushiTray icon" width="128" />
+  <img src="assets/icon.png" alt="SushiTray icon" width="128" />
 </p>
 
 ## Features
@@ -22,6 +22,7 @@ Start and stop `sushi serve` from the tray, watch live prefill/decode tok/s, bro
 - **Settings**
   - Editable serve command (UserDefaults)
   - Autostart server (default on)
+  - Preferred terminal for Agents (Terminal, iTerm2, Warp, Ghostty)
   - Brew install hint if `sushi` is missing
   - Live log tail
 - Injects `--log-file ~/.sushi/logs/sushi.log` and `--parent-pid` when not already set
@@ -42,7 +43,7 @@ brew install beamivalice/tap/sushi
 ```bash
 git clone https://github.com/derkan/SushiTray.git
 cd SushiTray
-make icons          # regenerate tray/app icons from assets/sushi-icon.png
+make icons          # regenerate tray/app icons from assets/icon.png
 make run            # debug build → SushiTray.app → launch
 # or
 make run-release
@@ -70,7 +71,7 @@ make xcode
 2. If Autostart is enabled (default), the server starts with your saved command.
 3. Click the tray icon for status, Start/Stop, Models, Agents, stats, Settings, About, Quit.
 4. When the server logs the chat URL, choose **Open chat** to open it in the browser.
-5. Use **Agents ▸** to open a coding agent in Terminal via `sushi launch <agent>` (passes `--url` for the local server and `--model` when configured).
+5. Use **Agents ▸** to pick a working directory (Cancel → home), then open a coding agent in your preferred terminal via `sushi launch <agent>` (passes `--url` and optional `--model`).
 
 ### Default serve command
 
@@ -99,7 +100,7 @@ Prefill and decode speeds are taken from lines like:
 SushiTray/
 ├── Package.swift          # SwiftPM executable
 ├── Makefile
-├── assets/sushi-icon.png
+├── assets/icon.png
 └── SushiTray/             # sources + Info.plist + icons
     ├── AppDelegate.swift  # NSMenu tray chrome
     ├── Config/

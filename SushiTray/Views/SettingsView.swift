@@ -35,6 +35,19 @@ struct SettingsView: View {
             Toggle("Autostart server", isOn: $config.autoStartServer)
                 .toggleStyle(.checkbox)
 
+            HStack {
+                Text("Terminal for agents")
+                Spacer()
+                Picker("", selection: $config.preferredTerminal) {
+                    ForEach(PreferredTerminal.allCases) { terminal in
+                        Text(terminalLabel(terminal))
+                            .tag(terminal)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 180)
+            }
+
             if sushiMissing {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("sushi was not found on this system.")
@@ -137,5 +150,12 @@ struct SettingsView: View {
     private func refreshBinaryStatusImmediate() {
         binaryCheckWorkItem?.cancel()
         sushiMissing = !SushiBinary.isAvailable(command: commandDraft)
+    }
+
+    private func terminalLabel(_ terminal: PreferredTerminal) -> String {
+        if terminal.isInstalled {
+            return terminal.displayName
+        }
+        return "\(terminal.displayName) (not installed)"
     }
 }
