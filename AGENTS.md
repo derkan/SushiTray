@@ -1,7 +1,6 @@
 # SushiTray — Agent Guide
 
 macOS menu bar app that runs and controls a local `sushi serve` process.
-UI reference: oMLX-style `NSMenu`. Engineering reference: sibling `LLMBrain` project.
 
 ---
 
