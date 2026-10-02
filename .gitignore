@@ -1,0 +1,5 @@
+.build/
+SushiTray.app/
+*.xcodeproj/
+xcuserdata/
+.DS_Store

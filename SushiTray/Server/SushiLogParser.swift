@@ -1,0 +1,55 @@
+import Foundation
+
+final class SushiLogParser {
+    private let streamedRegex: NSRegularExpression
+    private let tokensRegex: NSRegularExpression
+
+    init() {
+        streamedRegex = try! NSRegularExpression(
+            pattern: #"prefill:\s*([\d.]+)\s*tok/s.*?decode:\s*([\d.]+)\s*tok/s"#,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        )
+        tokensRegex = try! NSRegularExpression(
+            pattern: #"<-\s*(\d+)\+(\d+)\s+tokens streamed"#,
+            options: [.caseInsensitive]
+        )
+    }
+
+    struct Sample {
+        var prefill: Double
+        var decode: Double
+        var promptTokens: Int?
+        var generatedTokens: Int?
+    }
+
+    func parse(_ line: String) -> Sample? {
+        let cleaned = line.replacingOccurrences(of: "\0", with: "")
+        let ns = cleaned as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        guard let match = streamedRegex.firstMatch(in: cleaned, options: [], range: full),
+              match.numberOfRanges >= 3,
+              let prefillRange = Range(match.range(at: 1), in: cleaned),
+              let decodeRange = Range(match.range(at: 2), in: cleaned),
+              let prefill = Double(cleaned[prefillRange]),
+              let decode = Double(cleaned[decodeRange])
+        else { return nil }
+
+        var prompt: Int?
+        var generated: Int?
+        if let tMatch = tokensRegex.firstMatch(in: cleaned, options: [], range: full),
+           tMatch.numberOfRanges >= 3,
+           let pRange = Range(tMatch.range(at: 1), in: cleaned),
+           let gRange = Range(tMatch.range(at: 2), in: cleaned)
+        {
+            prompt = Int(cleaned[pRange])
+            generated = Int(cleaned[gRange])
+        }
+
+        return Sample(
+            prefill: prefill,
+            decode: decode,
+            promptTokens: prompt,
+            generatedTokens: generated
+        )
+    }
+}
