@@ -1,5 +1,6 @@
 .build/
 SushiTray.app/
+dist/
 *.xcodeproj/
 xcuserdata/
 .DS_Store

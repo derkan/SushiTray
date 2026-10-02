@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release zip
+        run: make dist
+
+      - name: Read version and checksum
+        id: meta
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist)
+          ZIP="dist/SushiTray-${VERSION}.zip"
+          SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Version $VERSION  sha256=$SHA"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.meta.outputs.zip }}
+          generate_release_notes: true
+          body: |
+            ## Install with Homebrew
+
+            ```bash
+            brew tap derkan/tap
+            brew install --cask sushitray
+            ```
+
+            Or upgrade:
+
+            ```bash
+            brew upgrade --cask sushitray
+            ```
+
+            **SHA256:** `${{ steps.meta.outputs.sha256 }}`
+
+            > Not notarized. If Gatekeeper blocks the app:
+            > `xattr -cr /Applications/SushiTray.app`
+
+      - name: Update Homebrew tap cask
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA256: ${{ steps.meta.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/derkan/homebrew-tap.git" "$TMP"
+          CASK="$TMP/Casks/sushitray.rb"
+          sed -i '' \
+            -e "s/version \".*\"/version \"${VERSION}\"/" \
+            -e "s/sha256 \".*\"/sha256 \"${SHA256}\"/" \
+            "$CASK"
+          cd "$TMP"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/sushitray.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date"
+          else
+            git commit -m "sushitray ${VERSION}"
+            git push
+          fi

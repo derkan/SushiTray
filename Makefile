@@ -1,4 +1,4 @@
-.PHONY: build run clean xcode resolve icons help
+.PHONY: build run clean xcode resolve icons help dist
 
 SWIFT := swift
 CONFIG ?= debug
@@ -10,15 +10,22 @@ APP_PATH := $(APP_BUNDLE)/Contents/MacOS/SushiTray
 PLIST_PATH := $(APP_BUNDLE)/Contents/Info.plist
 ICONS_DIR := $(APP_BUNDLE)/Contents/Resources
 ICON_SRC := assets/icon.png
+VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist 2>/dev/null || echo 0.0.0)
+DIST_ZIP := dist/SushiTray-$(VERSION).zip
 
 define resolve_binary
 $(shell \
-  if [ -x "$(BUILD_DIR_CLASSIC)/SushiTray" ]; then echo "$(BUILD_DIR_CLASSIC)/SushiTray"; \
-  elif [ -x "$(BUILD_DIR_XCODE)/SushiTray" ]; then echo "$(BUILD_DIR_XCODE)/SushiTray"; \
-  else echo "$(BUILD_DIR_CLASSIC)/SushiTray"; fi)
+  CFG="$(CONFIG)"; \
+  PROD=$$(echo "$$CFG" | awk '{print toupper(substr($$0,1,1)) substr($$0,2)}'); \
+  for p in \
+    ".build/arm64-apple-macosx/$$CFG/SushiTray" \
+    ".build/$$CFG/SushiTray" \
+    ".build/out/Products/$$PROD/SushiTray" \
+  ; do \
+    if [ -x "$$p" ]; then echo "$$p"; exit 0; fi; \
+  done; \
+  echo ".build/arm64-apple-macosx/$$CFG/SushiTray")
 endef
-
-BINARY := $(resolve_binary)
 
 build:
 	$(SWIFT) build -c release --product SushiTray
@@ -28,8 +35,9 @@ build-release: build
 build-debug:
 	$(SWIFT) build --product SushiTray
 
-bundle: build-$(CONFIG)
-	@echo "Creating .app bundle..."
+bundle:
+	@$(MAKE) build-$(CONFIG)
+	@echo "Creating .app bundle ($(CONFIG))..."
 	@rm -rf $(APP_BUNDLE)
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@mkdir -p $(ICONS_DIR)
@@ -44,11 +52,11 @@ bundle: build-$(CONFIG)
 	@cp SushiTray/AppIcon.icns $(ICONS_DIR)/AppIcon.icns 2>/dev/null || true
 	@echo "Bundle ready: $(APP_BUNDLE)"
 
-bundle-debug: CONFIG = debug
-bundle-debug: bundle
+bundle-debug:
+	@$(MAKE) CONFIG=debug bundle
 
-bundle-release: CONFIG = release
-bundle-release: bundle
+bundle-release:
+	@$(MAKE) CONFIG=release bundle
 
 run: bundle-debug
 	@echo ""
@@ -62,13 +70,21 @@ run-release: bundle-release
 
 clean:
 	$(SWIFT) package clean
-	@rm -rf $(APP_BUNDLE)
+	@rm -rf $(APP_BUNDLE) dist
 
 resolve:
 	$(SWIFT) package resolve
 
 xcode:
 	open Package.swift
+
+# Release zip for GitHub Releases / Homebrew Cask (arm64).
+dist: bundle-release
+	@mkdir -p dist
+	@rm -f $(DIST_ZIP)
+	@ditto -c -k --sequesterRsrc --keepParent $(APP_BUNDLE) $(DIST_ZIP)
+	@echo "Created $(DIST_ZIP)"
+	@shasum -a 256 $(DIST_ZIP)
 
 icons:
 	@echo "Generating status bar icons (original colors)..."
@@ -108,5 +124,6 @@ help:
 	@echo "  build / build-debug / build-release"
 	@echo "  bundle / bundle-debug / bundle-release"
 	@echo "  run / run-release"
+	@echo "  dist     release zip → dist/SushiTray-\$$(version).zip"
 	@echo "  icons    regenerate from assets/icon.png"
 	@echo "  clean / resolve / xcode"
