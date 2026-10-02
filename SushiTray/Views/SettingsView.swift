@@ -31,6 +31,9 @@ struct SettingsView: View {
                         .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
                 )
 
+            Toggle("Autostart server", isOn: $config.autoStartServer)
+                .toggleStyle(.checkbox)
+
             if sushiMissing {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("sushi was not found on this system.")

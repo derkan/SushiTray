@@ -13,10 +13,16 @@ final class AppConfig: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let commandKey = "serveCommand"
+    private let autoStartKey = "autoStartServer"
     private let cachedModelsKey = "cachedModels"
 
     @Published var serveCommand: String {
         didSet { defaults.set(serveCommand, forKey: commandKey) }
+    }
+
+    /// When true, start sushi serve on app launch. Default: true.
+    @Published var autoStartServer: Bool {
+        didSet { defaults.set(autoStartServer, forKey: autoStartKey) }
     }
 
     private init() {
@@ -24,6 +30,11 @@ final class AppConfig: ObservableObject {
             serveCommand = saved
         } else {
             serveCommand = Self.defaultCommand
+        }
+        if defaults.object(forKey: autoStartKey) == nil {
+            autoStartServer = true
+        } else {
+            autoStartServer = defaults.bool(forKey: autoStartKey)
         }
     }
 

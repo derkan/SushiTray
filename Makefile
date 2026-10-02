@@ -71,11 +71,13 @@ xcode:
 	open Package.swift
 
 icons:
-	@echo "Generating status bar icons..."
+	@echo "Generating status bar icons (original colors)..."
 	@mkdir -p SushiTray/Assets.xcassets/StatusBarIcon.imageset
 	@mkdir -p SushiTray/Assets.xcassets/AppIcon.appiconset
-	sips -z 40 40 $(ICON_SRC) --out SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png >/dev/null
-	sips -z 20 20 $(ICON_SRC) --out SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar.png >/dev/null
+	@magick $(ICON_SRC) -resize 36x36 \
+		SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png
+	@magick $(ICON_SRC) -resize 18x18 \
+		SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar.png
 	@echo "Generating app icons..."
 	sips -z 16 16 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-16.png >/dev/null
 	sips -z 32 32 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-32.png >/dev/null

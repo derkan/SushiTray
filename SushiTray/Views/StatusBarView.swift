@@ -51,11 +51,10 @@ struct StatusBarView: View {
         Group {
             if let image = Self.statusBarImage() {
                 Image(nsImage: image)
-                    .renderingMode(.template)
                     .resizable()
+                    .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 16, height: 16)
-                    .foregroundStyle(ink)
+                    .frame(width: 18, height: 18)
             } else {
                 Image(systemName: "fish")
                     .font(.system(size: 13, weight: .regular))
@@ -77,21 +76,24 @@ struct StatusBarView: View {
     }
 
     private static func statusBarImage() -> NSImage? {
-        if let named = NSImage(named: "StatusBarIcon") {
-            named.isTemplate = true
-            return named
-        }
-        let bundle = Bundle.main
-        let candidates = [
-            bundle.path(forResource: "statusbar", ofType: "png"),
-            bundle.path(forResource: "statusbar@2x", ofType: "png"),
-            bundle.bundlePath + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar.png",
+        let candidates: [String?] = [
+            Bundle.main.path(forResource: "statusbar", ofType: "png"),
+            Bundle.main.path(forResource: "statusbar@2x", ofType: "png"),
+            Bundle.main.bundlePath
+                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar.png",
+            Bundle.main.bundlePath
+                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png",
         ]
         for path in candidates {
             guard let path, let image = NSImage(contentsOfFile: path) else { continue }
-            image.isTemplate = true
-            image.size = NSSize(width: 16, height: 16)
+            // Keep original grayscale pixels — not a template silhouette.
+            image.isTemplate = false
+            image.size = NSSize(width: 18, height: 18)
             return image
+        }
+        if let named = NSImage(named: "StatusBarIcon") {
+            named.isTemplate = false
+            return named
         }
         return nil
     }

@@ -3,6 +3,7 @@ import Foundation
 final class SushiLogParser {
     private let streamedRegex: NSRegularExpression
     private let tokensRegex: NSRegularExpression
+    private let chatURLRegex: NSRegularExpression
 
     init() {
         streamedRegex = try! NSRegularExpression(
@@ -11,6 +12,10 @@ final class SushiLogParser {
         )
         tokensRegex = try! NSRegularExpression(
             pattern: #"<-\s*(\d+)\+(\d+)\s+tokens streamed"#,
+            options: [.caseInsensitive]
+        )
+        chatURLRegex = try! NSRegularExpression(
+            pattern: #"chat in your browser:\s*(https?://\S+)"#,
             options: [.caseInsensitive]
         )
     }
@@ -51,5 +56,21 @@ final class SushiLogParser {
             promptTokens: prompt,
             generatedTokens: generated
         )
+    }
+
+    /// Extracts `http://…` from lines like `chat in your browser: http://127.0.0.1:12345/`.
+    func parseChatURL(_ line: String) -> URL? {
+        let cleaned = line.replacingOccurrences(of: "\0", with: "")
+        let ns = cleaned as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        guard let match = chatURLRegex.firstMatch(in: cleaned, options: [], range: full),
+              match.numberOfRanges >= 2,
+              let range = Range(match.range(at: 1), in: cleaned)
+        else { return nil }
+        var raw = String(cleaned[range])
+        while raw.last == "." || raw.last == "," || raw.last == ")" {
+            raw.removeLast()
+        }
+        return URL(string: raw)
     }
 }

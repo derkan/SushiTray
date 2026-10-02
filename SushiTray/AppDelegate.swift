@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusMenuItem: NSMenuItem!
     private var startStopMenuItem: NSMenuItem!
+    private var openChatMenuItem: NSMenuItem!
     private var modelsMenuItem: NSMenuItem!
     private var displayedModels: [SushiModel] = []
     private var modelsSource: ModelsClient.Source = .disk
@@ -28,6 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateSelectedModelFromCommand()
         refreshModelsAsync()
         observeServerState()
+        if config.autoStartServer {
+            serverManager.start(command: config.serveCommand)
+            updateMainMenuLabels()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.refreshModelsAsync()
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -78,6 +86,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         startStopMenuItem.target = self
         menu.addItem(startStopMenuItem)
+
+        openChatMenuItem = NSMenuItem(
+            title: "Open chat",
+            action: #selector(openChat),
+            keyEquivalent: ""
+        )
+        openChatMenuItem.target = self
+        openChatMenuItem.isHidden = true
+        menu.addItem(openChatMenuItem)
 
         modelsMenuItem = NSMenuItem(title: "Models", action: nil, keyEquivalent: "")
         modelsMenu.delegate = self
@@ -168,6 +185,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    @objc private func openChat() {
+        guard let url = serverManager.chatURL else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     @objc private func showSettings() {
         if let window = settingsWindow {
             window.makeKeyAndOrderFront(nil)
@@ -215,7 +237,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateMainMenuLabels() {
         if serverManager.isRunning {
             statusMenuItem.title = "Server: running (port \(serverManager.port))"
-            // Green-ish attributed title
             let attrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.systemGreen,
                 .font: NSFont.menuFont(ofSize: 0),
@@ -225,10 +246,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 attributes: attrs
             )
             startStopMenuItem.title = "Stop Server"
+            if serverManager.chatURL == nil {
+                serverManager.scanLogsForChatURL()
+            }
+            let hasChat = serverManager.chatURL != nil
+            openChatMenuItem.isHidden = !hasChat
+            openChatMenuItem.isEnabled = hasChat
+            if let url = serverManager.chatURL {
+                openChatMenuItem.toolTip = url.absoluteString
+            } else {
+                openChatMenuItem.toolTip = nil
+            }
         } else {
             statusMenuItem.attributedTitle = nil
             statusMenuItem.title = "Server: stopped"
             startStopMenuItem.title = "Start Server"
+            openChatMenuItem.isHidden = true
+            openChatMenuItem.isEnabled = false
+            openChatMenuItem.toolTip = nil
         }
         if let err = serverManager.errorMessage, !serverManager.isRunning {
             statusMenuItem.title = "Server: error"

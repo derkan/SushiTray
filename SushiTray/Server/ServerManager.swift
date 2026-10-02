@@ -14,6 +14,8 @@ final class ServerManager: ObservableObject {
     @Published private(set) var errorMessage: String?
     @Published private(set) var port: Int = ServeCommandParser.defaultPort
     @Published private(set) var host: String = ServeCommandParser.defaultHost
+    /// From log line `chat in your browser: http://…` while server is running.
+    @Published private(set) var chatURL: URL?
 
     // Session serving stats
     @Published private(set) var sessionPrefill: Double?
@@ -41,6 +43,7 @@ final class ServerManager: ObservableObject {
         let path = ServeCommandParser.logFilePath(fromCommand: command)
         currentLogPath = path
         logTailer.start(path: path)
+        scanLogsForChatURL()
     }
 
     func start(command: String) {
@@ -154,6 +157,7 @@ final class ServerManager: ObservableObject {
 
     private func markStopped() {
         isRunning = false
+        chatURL = nil
         prefillTokensPerSecond = nil
         genTokensPerSecond = nil
         gpuUtilization = nil
@@ -182,9 +186,16 @@ final class ServerManager: ObservableObject {
             gpuMemoryFraction = nil
             gpuMemoryUsedBytes = nil
         }
+        // Catch chat URL if it appeared after start (or was already in the tailed log).
+        if isRunning, chatURL == nil {
+            scanLogsForChatURL()
+        }
     }
 
     private func ingestLogLine(_ line: String) {
+        if let url = logParser.parseChatURL(line) {
+            chatURL = url
+        }
         guard let sample = logParser.parse(line) else { return }
         prefillWindow.record(sample.prefill)
         genWindow.record(sample.decode)
@@ -194,6 +205,15 @@ final class ServerManager: ObservableObject {
         if let p = sample.promptTokens { sessionPromptTokens += p }
         if let g = sample.generatedTokens { sessionGeneratedTokens += g }
         publishSpeedWindows()
+    }
+
+    func scanLogsForChatURL() {
+        for line in logTailer.lines.reversed() {
+            if let url = logParser.parseChatURL(line) {
+                chatURL = url
+                return
+            }
+        }
     }
 
     private func publishSpeedWindows() {
