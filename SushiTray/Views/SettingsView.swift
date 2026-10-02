@@ -7,6 +7,7 @@ struct SettingsView: View {
     @ObservedObject var logTailer: LogTailer
     @State private var commandDraft: String = ""
     @State private var sushiMissing = false
+    @State private var binaryCheckWorkItem: DispatchWorkItem?
 
     init(config: AppConfig, serverManager: ServerManager) {
         self.config = config
@@ -103,21 +104,38 @@ struct SettingsView: View {
         .frame(minWidth: 560, minHeight: 480)
         .onAppear {
             commandDraft = config.serveCommand
-            refreshBinaryStatus()
+            refreshBinaryStatusImmediate()
             serverManager.prepareLogTail(command: config.serveCommand)
         }
         .onChange(of: commandDraft) { _ in
-            refreshBinaryStatus()
+            scheduleBinaryStatusRefresh()
+        }
+        .onDisappear {
+            binaryCheckWorkItem?.cancel()
         }
     }
 
     private func save() {
         config.serveCommand = commandDraft
-        refreshBinaryStatus()
+        refreshBinaryStatusImmediate()
         serverManager.prepareLogTail(command: config.serveCommand)
     }
 
-    private func refreshBinaryStatus() {
+    private func scheduleBinaryStatusRefresh() {
+        binaryCheckWorkItem?.cancel()
+        let draft = commandDraft
+        let work = DispatchWorkItem {
+            let missing = !SushiBinary.isAvailable(command: draft)
+            DispatchQueue.main.async {
+                self.sushiMissing = missing
+            }
+        }
+        binaryCheckWorkItem = work
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    private func refreshBinaryStatusImmediate() {
+        binaryCheckWorkItem?.cancel()
         sushiMissing = !SushiBinary.isAvailable(command: commandDraft)
     }
 }

@@ -13,7 +13,10 @@ final class LogTailer: ObservableObject {
     private var buffer = Data()
     private var lastSize: UInt64 = 0
 
-    init(maxLines: Int = 200) {
+    /// Bytes to read from EOF when seeding the in-memory tail.
+    private let tailReadBytes: UInt64 = 64 * 1024
+
+    init(maxLines: Int = 100) {
         self.maxLines = maxLines
     }
 
@@ -29,7 +32,6 @@ final class LogTailer: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.poll()
         }
-        // Also load last N lines for Settings display
         loadTail()
     }
 
@@ -62,15 +64,36 @@ final class LogTailer: ObservableObject {
         }
     }
 
+    /// Reads only the last ~64KB of the log, not the entire file.
     private func loadTail() {
-        guard let path,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: path))
-        else { return }
-        let text = String(decoding: stripNULs(data), as: UTF8.self)
+        guard let path else { return }
+        let fm = FileManager.default
+        guard let attrs = try? fm.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? UInt64,
+              size > 0,
+              let handle = FileHandle(forReadingAtPath: path)
+        else {
+            let clear = { self.lines = [] }
+            if Thread.isMainThread { clear() } else { DispatchQueue.main.async(execute: clear) }
+            return
+        }
+        defer { try? handle.close() }
+
+        let offset = size > tailReadBytes ? size - tailReadBytes : 0
+        handle.seek(toFileOffset: offset)
+        var data = stripNULs(handle.readDataToEndOfFile())
+        // If we started mid-file, drop the partial first line.
+        if offset > 0, let nl = data.firstIndex(of: 0x0A) {
+            data = data.suffix(from: data.index(after: nl))
+        }
+        let text = String(decoding: data, as: UTF8.self)
         let all = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let slice = Array(all.suffix(maxLines))
-        DispatchQueue.main.async {
-            self.lines = slice
+        let apply = { self.lines = slice }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
         }
     }
 
@@ -82,11 +105,18 @@ final class LogTailer: ObservableObject {
         else { return }
 
         if size < lastSize {
-            // Rotated or truncated
+            // Rotated or truncated — re-seed from trailing bytes, don't slurp from 0.
             try? fileHandle?.close()
             fileHandle = FileHandle(forReadingAtPath: path)
-            lastSize = 0
             buffer = Data()
+            loadTail()
+            if let handle = fileHandle {
+                handle.seekToEndOfFile()
+                lastSize = handle.offsetInFile
+            } else {
+                lastSize = size
+            }
+            return
         }
 
         if fileHandle == nil {
@@ -103,28 +133,38 @@ final class LogTailer: ObservableObject {
         lastSize = handle.offsetInFile
         buffer.append(stripNULs(chunk))
 
-        while let range = buffer.range(of: Data([0x0A])) {
-            let lineData = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
-            buffer.removeSubrange(buffer.startIndex..<range.upperBound)
-            if let line = String(data: lineData, encoding: .utf8)?
+        var newLines: [String] = []
+        // Split without quadratic removeSubrange on the whole buffer.
+        var start = buffer.startIndex
+        while let nl = buffer[start...].firstIndex(of: 0x0A) {
+            let lineData = buffer[start..<nl]
+            start = buffer.index(after: nl)
+            if let line = String(data: Data(lineData), encoding: .utf8)?
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
             {
-                appendLine(line)
+                newLines.append(line)
             }
         }
-    }
+        if start > buffer.startIndex {
+            buffer.removeSubrange(buffer.startIndex..<start)
+        }
+        guard !newLines.isEmpty else { return }
 
-    private func appendLine(_ line: String) {
         DispatchQueue.main.async {
-            self.lines.append(line)
+            self.lines.append(contentsOf: newLines)
             if self.lines.count > self.maxLines {
                 self.lines.removeFirst(self.lines.count - self.maxLines)
             }
-            self.onLine?(line)
+            for line in newLines {
+                self.onLine?(line)
+            }
         }
     }
 
     private func stripNULs(_ data: Data) -> Data {
-        data.filter { $0 != 0 }
+        if data.contains(0) {
+            return data.filter { $0 != 0 }
+        }
+        return data
     }
 }

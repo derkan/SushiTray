@@ -40,21 +40,23 @@ enum GPUMetricsSampler {
                 IOObjectRelease(service)
                 service = IOIteratorNext(iterator)
             }
-            guard let props = copyProperties(service) else { continue }
-            if let stats = props["PerformanceStatistics"] as? [String: Any] {
+            if let stats = performanceStatistics(for: service) {
                 return stats
             }
         }
         return nil
     }
 
-    private static func copyProperties(_ service: io_registry_entry_t) -> [String: Any]? {
-        var cfProps: Unmanaged<CFMutableDictionary>?
-        let kr = IORegistryEntryCreateCFProperties(service, &cfProps, kCFAllocatorDefault, 0)
-        guard kr == KERN_SUCCESS, let dict = cfProps?.takeRetainedValue() as? [String: Any] else {
-            return nil
-        }
-        return dict
+    /// Only fetches `PerformanceStatistics` — not the entire IORegistry property bag.
+    private static func performanceStatistics(for service: io_registry_entry_t) -> [String: Any]? {
+        let key = "PerformanceStatistics" as CFString
+        guard let cf = IORegistryEntryCreateCFProperty(
+            service,
+            key,
+            kCFAllocatorDefault,
+            0
+        ) else { return nil }
+        return cf.takeRetainedValue() as? [String: Any]
     }
 
     private static func physicalMemoryBytes() -> UInt64 {

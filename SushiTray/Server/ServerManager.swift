@@ -24,7 +24,10 @@ final class ServerManager: ObservableObject {
     @Published private(set) var sessionGeneratedTokens: Int = 0
     @Published private(set) var sessionRequests: Int = 0
 
-    let logTailer = LogTailer(maxLines: 300)
+    /// Fired on the main run-loop tick (for menu label refresh).
+    var onTick: (() -> Void)?
+
+    let logTailer = LogTailer(maxLines: 100)
     private let logParser = SushiLogParser()
     private var process: Process?
     private var intentionalStop = false
@@ -32,6 +35,8 @@ final class ServerManager: ObservableObject {
     private var genWindow = RollingMetric(window: 3)
     private var tickTimer: Timer?
     private var currentLogPath: String?
+    private var gpuTickCounter = 0
+    private var didScanChatURLForSession = false
 
     private init() {
         logTailer.setOnLine { [weak self] line in
@@ -43,13 +48,15 @@ final class ServerManager: ObservableObject {
         let path = ServeCommandParser.logFilePath(fromCommand: command)
         currentLogPath = path
         logTailer.start(path: path)
-        scanLogsForChatURL()
+        scanLogsForChatURLOnce()
     }
 
     func start(command: String) {
         guard !isRunning else { return }
         intentionalStop = false
         errorMessage = nil
+        didScanChatURLForSession = false
+        chatURL = nil
 
         let result = ServeCommandParser.buildLaunchArguments(
             command: command,
@@ -65,6 +72,7 @@ final class ServerManager: ObservableObject {
             currentLogPath = launch.logPath
             logTailer.reload(path: launch.logPath)
             launchOwnedProcess(binary: launch.binary, args: launch.args)
+            scanLogsForChatURLOnce()
         }
     }
 
@@ -157,14 +165,16 @@ final class ServerManager: ObservableObject {
 
     private func markStopped() {
         isRunning = false
-        chatURL = nil
-        prefillTokensPerSecond = nil
-        genTokensPerSecond = nil
-        gpuUtilization = nil
-        gpuMemoryFraction = nil
-        gpuMemoryUsedBytes = nil
+        if chatURL != nil { chatURL = nil }
+        didScanChatURLForSession = false
+        assign(&prefillTokensPerSecond, nil)
+        assign(&genTokensPerSecond, nil)
+        assign(&gpuUtilization, nil)
+        assign(&gpuMemoryFraction, nil)
+        if gpuMemoryUsedBytes != nil { gpuMemoryUsedBytes = nil }
         prefillWindow.reset()
         genWindow.reset()
+        gpuTickCounter = 0
     }
 
     private func resetSessionStats() {
@@ -177,24 +187,28 @@ final class ServerManager: ObservableObject {
 
     private func tick() {
         publishSpeedWindows()
-        if isRunning, let gpu = GPUMetricsSampler.sample() {
-            gpuUtilization = gpu.utilization
-            gpuMemoryFraction = gpu.memoryFraction
-            gpuMemoryUsedBytes = gpu.memoryUsedBytes
+        // GPU sample every 2s — IORegistry is the hot cost.
+        gpuTickCounter += 1
+        if isRunning, gpuTickCounter % 2 == 0 {
+            if let gpu = GPUMetricsSampler.sample() {
+                assign(&gpuUtilization, gpu.utilization)
+                assign(&gpuMemoryFraction, gpu.memoryFraction)
+                if gpuMemoryUsedBytes != gpu.memoryUsedBytes {
+                    gpuMemoryUsedBytes = gpu.memoryUsedBytes
+                }
+            }
         } else if !isRunning {
-            gpuUtilization = nil
-            gpuMemoryFraction = nil
-            gpuMemoryUsedBytes = nil
+            assign(&gpuUtilization, nil)
+            assign(&gpuMemoryFraction, nil)
+            if gpuMemoryUsedBytes != nil { gpuMemoryUsedBytes = nil }
         }
-        // Catch chat URL if it appeared after start (or was already in the tailed log).
-        if isRunning, chatURL == nil {
-            scanLogsForChatURL()
-        }
+        onTick?()
     }
 
     private func ingestLogLine(_ line: String) {
-        if let url = logParser.parseChatURL(line) {
+        if chatURL == nil, let url = logParser.parseChatURL(line) {
             chatURL = url
+            didScanChatURLForSession = true
         }
         guard let sample = logParser.parse(line) else { return }
         prefillWindow.record(sample.prefill)
@@ -207,7 +221,10 @@ final class ServerManager: ObservableObject {
         publishSpeedWindows()
     }
 
-    func scanLogsForChatURL() {
+    /// One-shot scan of the current in-memory tail. New lines go through `ingestLogLine`.
+    func scanLogsForChatURLOnce() {
+        guard !didScanChatURLForSession, chatURL == nil else { return }
+        didScanChatURLForSession = true
         for line in logTailer.lines.reversed() {
             if let url = logParser.parseChatURL(line) {
                 chatURL = url
@@ -217,7 +234,18 @@ final class ServerManager: ObservableObject {
     }
 
     private func publishSpeedWindows() {
-        prefillTokensPerSecond = prefillWindow.stickyLatest()
-        genTokensPerSecond = genWindow.stickyLatest()
+        assign(&prefillTokensPerSecond, prefillWindow.stickyLatest())
+        assign(&genTokensPerSecond, genWindow.stickyLatest())
+    }
+
+    private func assign(_ target: inout Double?, _ value: Double?) {
+        switch (target, value) {
+        case (nil, nil):
+            return
+        case let (a?, b?) where abs(a - b) < 0.05:
+            return
+        default:
+            target = value
+        }
     }
 }

@@ -60,7 +60,12 @@ final class SushiLogParser {
 
     /// Extracts `http://…` from lines like `chat in your browser: http://127.0.0.1:12345/`.
     func parseChatURL(_ line: String) -> URL? {
-        let cleaned = line.replacingOccurrences(of: "\0", with: "")
+        guard line.range(of: "chat in your browser", options: .caseInsensitive) != nil else {
+            return nil
+        }
+        let cleaned = line.contains("\0")
+            ? line.replacingOccurrences(of: "\0", with: "")
+            : line
         let ns = cleaned as NSString
         let full = NSRange(location: 0, length: ns.length)
         guard let match = chatURLRegex.firstMatch(in: cleaned, options: [], range: full),

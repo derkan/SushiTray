@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let config = AppConfig.shared
 
     private var modelsMenu = NSMenu(title: "Models")
+    private var agentsMenu = NSMenu(title: "Agents")
     private var systemStatsMenu = NSMenu(title: "System Stats")
     private var servingStatsMenu = NSMenu(title: "Serving Stats")
 
@@ -17,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var startStopMenuItem: NSMenuItem!
     private var openChatMenuItem: NSMenuItem!
     private var modelsMenuItem: NSMenuItem!
+    private var agentsMenuItem: NSMenuItem!
     private var displayedModels: [SushiModel] = []
     private var modelsSource: ModelsClient.Source = .disk
     private var modelsError: String?
@@ -24,11 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusBar()
+        serverManager.onTick = { [weak self] in
+            self?.updateMainMenuLabels()
+        }
         serverManager.prepareLogTail(command: config.serveCommand)
         serverManager.startTicking()
         updateSelectedModelFromCommand()
         refreshModelsAsync()
-        observeServerState()
+        updateMainMenuLabels()
         if config.autoStartServer {
             serverManager.start(command: config.serveCommand)
             updateMainMenuLabels()
@@ -101,6 +106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modelsMenuItem.submenu = modelsMenu
         menu.addItem(modelsMenuItem)
 
+        agentsMenuItem = NSMenuItem(title: "Agents", action: nil, keyEquivalent: "")
+        agentsMenu.delegate = self
+        agentsMenuItem.submenu = agentsMenu
+        menu.addItem(agentsMenuItem)
+
         let systemItem = NSMenuItem(title: "System Stats", action: nil, keyEquivalent: "")
         systemStatsMenu.delegate = self
         systemItem.submenu = systemStatsMenu
@@ -161,6 +171,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if menu === modelsMenu {
             rebuildModelsMenu()
             refreshModelsAsync()
+        } else if menu === agentsMenu {
+            rebuildAgentsMenu()
         } else if menu === systemStatsMenu {
             rebuildSystemStatsMenu()
         } else if menu === servingStatsMenu {
@@ -188,6 +200,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openChat() {
         guard let url = serverManager.chatURL else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func launchAgent(_ sender: NSMenuItem) {
+        guard let agent = sender.representedObject as? String else { return }
+        let tokens = CommandTokenizer.tokenize(config.serveCommand)
+        guard let first = tokens.first,
+              let binary = SushiBinary.resolve(fromCommandToken: first)
+        else {
+            let alert = NSAlert()
+            alert.messageText = "sushi not found"
+            alert.informativeText = "Install with: brew install beamivalice/tap/sushi"
+            alert.runModal()
+            return
+        }
+        let conn = config.connection
+        let base = URL(string: "http://\(conn.host):\(conn.port)")
+            ?? URL(string: "http://127.0.0.1:12345")!
+        var modelID: String?
+        if let path = ServeCommandParser.modelPath(from: tokens) {
+            modelID = (path as NSString).lastPathComponent
+        }
+        AgentLauncher.launch(
+            agent: agent,
+            sushiBinary: binary,
+            baseURL: base,
+            modelID: modelID
+        )
     }
 
     @objc private func showSettings() {
@@ -246,9 +285,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 attributes: attrs
             )
             startStopMenuItem.title = "Stop Server"
-            if serverManager.chatURL == nil {
-                serverManager.scanLogsForChatURL()
-            }
             let hasChat = serverManager.chatURL != nil
             openChatMenuItem.isHidden = !hasChat
             openChatMenuItem.isEnabled = hasChat
@@ -321,6 +357,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 item.state = .on
             }
             modelsMenu.addItem(item)
+        }
+    }
+
+    private func rebuildAgentsMenu() {
+        agentsMenu.removeAllItems()
+
+        let tokens = CommandTokenizer.tokenize(config.serveCommand)
+        let binary = tokens.first.flatMap { SushiBinary.resolve(fromCommandToken: $0) }
+        let agents = AgentsCatalog.list(sushiBinary: binary)
+
+        if binary == nil {
+            let note = NSMenuItem(
+                title: "(sushi not found)",
+                action: nil,
+                keyEquivalent: ""
+            )
+            note.isEnabled = false
+            agentsMenu.addItem(note)
+            return
+        }
+
+        if !serverManager.isRunning {
+            let note = NSMenuItem(
+                title: "(start server to connect)",
+                action: nil,
+                keyEquivalent: ""
+            )
+            note.isEnabled = false
+            agentsMenu.addItem(note)
+        }
+
+        for agent in agents {
+            let item = NSMenuItem(
+                title: agent,
+                action: #selector(launchAgent(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = agent
+            item.isEnabled = binary != nil
+            item.toolTip = "sushi launch \(agent)"
+            agentsMenu.addItem(item)
         }
     }
 
@@ -415,9 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if result.source == .api {
                     self.config.saveCachedModels(result.models)
                 }
-                if self.modelsMenu.numberOfItems >= 0 {
-                    self.rebuildModelsMenu()
-                }
+                self.rebuildModelsMenu()
             }
         }
     }
@@ -426,13 +502,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let tokens = CommandTokenizer.tokenize(config.serveCommand)
         if let path = ServeCommandParser.modelPath(from: tokens) {
             selectedModelID = (path as NSString).lastPathComponent
-        }
-    }
-
-    private func observeServerState() {
-        // Poll labels when running state may change via process exit
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateMainMenuLabels()
         }
     }
 

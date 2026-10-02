@@ -49,7 +49,7 @@ struct StatusBarView: View {
 
     private var appGlyph: some View {
         Group {
-            if let image = Self.statusBarImage() {
+            if let image = Self.cachedStatusBarImage {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)
@@ -75,18 +75,18 @@ struct StatusBarView: View {
         .accessibilityLabel("SushiTray")
     }
 
-    private static func statusBarImage() -> NSImage? {
+    /// Decoded once — never reload PNG from disk on each SwiftUI render.
+    private static let cachedStatusBarImage: NSImage? = {
         let candidates: [String?] = [
             Bundle.main.path(forResource: "statusbar", ofType: "png"),
             Bundle.main.path(forResource: "statusbar@2x", ofType: "png"),
             Bundle.main.bundlePath
-                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar.png",
-            Bundle.main.bundlePath
                 + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png",
+            Bundle.main.bundlePath
+                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar.png",
         ]
         for path in candidates {
             guard let path, let image = NSImage(contentsOfFile: path) else { continue }
-            // Keep original grayscale pixels — not a template silhouette.
             image.isTemplate = false
             image.size = NSSize(width: 18, height: 18)
             return image
@@ -96,7 +96,7 @@ struct StatusBarView: View {
             return named
         }
         return nil
-    }
+    }()
 }
 
 private struct MetricBar: View {
