@@ -6,6 +6,8 @@ final class ServerManager: ObservableObject {
     static let shared = ServerManager()
 
     @Published private(set) var isRunning = false
+    /// True after log shows `Server listening on http://…`.
+    @Published private(set) var isReady = false
     @Published private(set) var prefillTokensPerSecond: Double?
     @Published private(set) var genTokensPerSecond: Double?
     @Published private(set) var gpuUtilization: Double?
@@ -156,6 +158,7 @@ final class ServerManager: ObservableObject {
             try process.run()
             self.process = process
             isRunning = true
+            isReady = false
             resetSessionStats()
         } catch {
             errorMessage = "Failed to start: \(error.localizedDescription)"
@@ -165,6 +168,7 @@ final class ServerManager: ObservableObject {
 
     private func markStopped() {
         isRunning = false
+        isReady = false
         if chatURL != nil { chatURL = nil }
         didScanChatURLForSession = false
         assign(&prefillTokensPerSecond, nil)
@@ -206,6 +210,9 @@ final class ServerManager: ObservableObject {
     }
 
     private func ingestLogLine(_ line: String) {
+        if isRunning, !isReady, logParser.isServerListening(line) {
+            isReady = true
+        }
         if chatURL == nil, let url = logParser.parseChatURL(line) {
             chatURL = url
             didScanChatURLForSession = true

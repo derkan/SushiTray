@@ -17,8 +17,16 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Serve Command")
-                .font(.headline)
+            HStack {
+                Text("Serve Command")
+                    .font(.headline)
+                Spacer()
+                Link(
+                    "Sushi documentation on GitHub",
+                    destination: URL(string: "https://github.com/beamivalice/sushi")!
+                )
+                .font(.callout)
+            }
 
             TextEditor(text: $commandDraft)
                 .font(.system(.body, design: .monospaced))
@@ -66,12 +74,6 @@ struct SettingsView: View {
                 .background(Color.orange.opacity(0.12))
                 .cornerRadius(6)
             }
-
-            Link(
-                "Sushi documentation on GitHub",
-                destination: URL(string: "https://github.com/beamivalice/sushi")!
-            )
-            .font(.callout)
 
             HStack {
                 Button("Save") { save() }

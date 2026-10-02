@@ -352,7 +352,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Menu builders
 
     private func updateMainMenuLabels() {
-        if serverManager.isRunning {
+        if serverManager.isReady {
             statusMenuItem.title = "Server: running (port \(serverManager.port))"
             let attrs: [NSAttributedString.Key: Any] = [
                 .foregroundColor: NSColor.systemGreen,
@@ -371,6 +371,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 openChatMenuItem.toolTip = nil
             }
+        } else if serverManager.isRunning {
+            statusMenuItem.title = "Server: starting…"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor.systemOrange,
+                .font: NSFont.menuFont(ofSize: 0),
+            ]
+            statusMenuItem.attributedTitle = NSAttributedString(
+                string: statusMenuItem.title,
+                attributes: attrs
+            )
+            startStopMenuItem.title = "Stop Server"
+            openChatMenuItem.isHidden = true
+            openChatMenuItem.isEnabled = false
+            openChatMenuItem.toolTip = nil
         } else {
             statusMenuItem.attributedTitle = nil
             statusMenuItem.title = "Server: stopped"
@@ -382,7 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let err = serverManager.errorMessage, !serverManager.isRunning {
             statusMenuItem.title = "Server: error"
             statusMenuItem.toolTip = err
-        } else {
+        } else if !serverManager.isRunning {
             statusMenuItem.toolTip = nil
         }
     }

@@ -64,7 +64,7 @@ struct StatusBarView: View {
         }
         .overlay(alignment: .bottom) {
             Circle()
-                .fill(isRunning ? Color.green : Color.gray.opacity(0.7))
+                .fill(indicatorColor)
                 .frame(width: 6, height: 6)
                 .overlay(
                     Circle()
@@ -73,6 +73,16 @@ struct StatusBarView: View {
                 .offset(y: 1)
         }
         .accessibilityLabel("SushiTray")
+    }
+
+    private var indicatorColor: Color {
+        if serverManager.isReady {
+            return Color.green
+        }
+        if serverManager.isRunning {
+            return Color.orange
+        }
+        return Color.gray.opacity(0.7)
     }
 
     /// Decoded once — never reload PNG from disk on each SwiftUI render.

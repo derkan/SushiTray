@@ -58,6 +58,17 @@ final class SushiLogParser {
         )
     }
 
+    /// True for lines like `Server listening on http://127.0.0.1:12345`.
+    func isServerListening(_ line: String) -> Bool {
+        let cleaned = line.contains("\0")
+            ? line.replacingOccurrences(of: "\0", with: "")
+            : line
+        return cleaned.range(
+            of: #"Server listening on http://"#,
+            options: .caseInsensitive
+        ) != nil
+    }
+
     /// Extracts `http://…` from lines like `chat in your browser: http://127.0.0.1:12345/`.
     func parseChatURL(_ line: String) -> URL? {
         guard line.range(of: "chat in your browser", options: .caseInsensitive) != nil else {
