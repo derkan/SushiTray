@@ -285,8 +285,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert()
         alert.messageText = "SushiTray"
         alert.informativeText =
-            "Menu bar controller for the sushi AI server.\nVersion \(UpdateChecker.appVersion)\n\nhttps://github.com/derkan/SushiTray"
+            "Menu bar controller for the sushi AI server.\nVersion \(UpdateChecker.appVersion)"
         alert.alertStyle = .informational
+
+        let repoURL = URL(string: "https://github.com/derkan/SushiTray")!
+        let linkField = NSTextField(labelWithString: "")
+        linkField.isSelectable = true
+        linkField.allowsEditingTextAttributes = true
+        linkField.attributedStringValue = NSAttributedString(
+            string: repoURL.absoluteString,
+            attributes: [
+                .link: repoURL,
+                .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                .foregroundColor: NSColor.linkColor,
+                .underlineStyle: NSUnderlineStyle.single.rawValue
+            ]
+        )
+        linkField.sizeToFit()
+        alert.accessoryView = linkField
+
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
