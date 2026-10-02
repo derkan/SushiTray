@@ -1,10 +1,16 @@
 import Foundation
 
 enum SushiBinary {
+    /// Homebrew + common bins — GUI apps often lack these on PATH.
+    private static let brewBinPaths = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+    ]
+
     private static let lock = NSLock()
     private static var whichCache: [String: String?] = [:]
 
-    /// Absolute path to `sushi` on PATH, if present.
+    /// Absolute path to `sushi` on PATH (incl. Homebrew), if present.
     static func resolve() -> String? {
         resolve(fromCommandToken: "sushi")
     }
@@ -26,7 +32,7 @@ enum SushiBinary {
         }
         lock.unlock()
 
-        let resolved = which(trimmed)
+        let resolved = lookup(trimmed)
         lock.lock()
         whichCache[trimmed] = resolved
         lock.unlock()
@@ -39,11 +45,22 @@ enum SushiBinary {
         return resolve(fromCommandToken: first) != nil
     }
 
-    /// Clears the `which` cache (e.g. after brew install).
+    /// Clears the lookup cache (e.g. after brew install).
     static func clearCache() {
         lock.lock()
         whichCache.removeAll()
         lock.unlock()
+    }
+
+    private static func lookup(_ name: String) -> String? {
+        let fm = FileManager.default
+        for dir in brewBinPaths {
+            let candidate = (dir as NSString).appendingPathComponent(name)
+            if fm.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return which(name)
     }
 
     private static func which(_ name: String) -> String? {
@@ -53,6 +70,14 @@ enum SushiBinary {
         process.arguments = [name]
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+        var env = ProcessInfo.processInfo.environment
+        let prefix = brewBinPaths.joined(separator: ":") + ":/usr/bin:/bin:/usr/sbin:/sbin"
+        if let existing = env["PATH"], !existing.isEmpty {
+            env["PATH"] = prefix + ":" + existing
+        } else {
+            env["PATH"] = prefix
+        }
+        process.environment = env
         do {
             try process.run()
             process.waitUntilExit()

@@ -5,7 +5,9 @@ CONFIG ?= debug
 # Prefer classic SPM layout; fall back to Xcode-integrated `.build/debug` symlink.
 BUILD_DIR_CLASSIC := .build/arm64-apple-macosx/$(CONFIG)
 BUILD_DIR_XCODE := .build/$(CONFIG)
-APP_BUNDLE := SushiTray.app
+# Keep the .app under .build so Spotlight does not list a second copy beside /Applications.
+APP_DIR := .build/app
+APP_BUNDLE := $(APP_DIR)/SushiTray.app
 APP_PATH := $(APP_BUNDLE)/Contents/MacOS/SushiTray
 PLIST_PATH := $(APP_BUNDLE)/Contents/Info.plist
 ICONS_DIR := $(APP_BUNDLE)/Contents/Resources
@@ -41,6 +43,7 @@ bundle:
 	@rm -rf $(APP_BUNDLE)
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@mkdir -p $(ICONS_DIR)
+	@touch $(APP_DIR)/.metadata_never_index
 	@BIN="$(resolve_binary)"; \
 	  if [ ! -x "$$BIN" ]; then echo "Binary not found at $$BIN"; exit 1; fi; \
 	  cp "$$BIN" $(APP_PATH)
@@ -70,7 +73,7 @@ run-release: bundle-release
 
 clean:
 	$(SWIFT) package clean
-	@rm -rf $(APP_BUNDLE) dist
+	@rm -rf $(APP_DIR) SushiTray.app dist
 
 resolve:
 	$(SWIFT) package resolve
