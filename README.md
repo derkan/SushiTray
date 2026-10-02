@@ -16,6 +16,7 @@ Apple Silicon, macOS 13+:
 
 ```bash
 brew tap derkan/tap
+brew trust derkan/tap          # required once (Homebrew third-party tap policy)
 brew install --cask sushitray
 ```
 

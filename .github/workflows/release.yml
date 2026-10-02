@@ -39,6 +39,7 @@ jobs:
 
             ```bash
             brew tap derkan/tap
+            brew trust derkan/tap
             brew install --cask sushitray
             ```
 
