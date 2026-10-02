@@ -68,6 +68,7 @@ make run-release
 - **Settings**
   - Editable serve command (UserDefaults)
   - Autostart server (default on)
+  - Check for updates automatically (default on) — sushi CLI + SushiTray
   - Preferred terminal for Agents
   - Brew install hint if `sushi` is missing
   - Live log tail
@@ -84,9 +85,16 @@ make run-release
 
 1. Launch **SushiTray** — it appears in the menu bar (`LSUIElement`, no Dock icon).
 2. If Autostart is enabled (default), the server starts with your saved command.
-3. Click the tray icon for status, Start/Stop, Models, Agents, stats, Settings, About, Quit.
+3. Click the tray icon for status, Start/Stop, Models, Agents, stats, Settings, **Check for Updates…**, About, Quit.
 4. When the server logs the chat URL, choose **Open chat**.
 5. **Agents ▸** → choose a folder (Cancel → home) → agent opens in your preferred terminal with `sushi launch … --url …`.
+
+Automatic update checks (Settings, default on) compare:
+
+- **sushi** — installed `sushi --version` vs latest [beamivalice/sushi](https://github.com/beamivalice/sushi) release  
+- **SushiTray** — app version vs latest [GitHub Release](https://github.com/derkan/SushiTray/releases)
+
+If an update is available you can apply it (Homebrew when installed that way, otherwise sushi’s updater / Releases page).
 
 ### Default serve command
 

@@ -35,6 +35,9 @@ struct SettingsView: View {
             Toggle("Autostart server", isOn: $config.autoStartServer)
                 .toggleStyle(.checkbox)
 
+            Toggle("Check for updates automatically", isOn: $config.checkForUpdates)
+                .toggleStyle(.checkbox)
+
             HStack {
                 Text("Terminal for agents")
                 Spacer()

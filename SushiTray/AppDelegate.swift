@@ -41,6 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.refreshModelsAsync()
             }
         }
+        if config.checkForUpdates {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.checkForUpdates(interactive: false)
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -130,6 +135,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let updatesItem = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdatesMenu),
+            keyEquivalent: ""
+        )
+        updatesItem.target = self
+        menu.addItem(updatesItem)
 
         let aboutItem = NSMenuItem(
             title: "About SushiTray",
@@ -264,14 +277,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func checkForUpdatesMenu() {
+        checkForUpdates(interactive: true)
+    }
+
     @objc private func showAbout() {
         let alert = NSAlert()
         alert.messageText = "SushiTray"
         alert.informativeText =
-            "Menu bar controller for the sushi AI server.\n\nhttps://github.com/beamivalice/sushi"
+            "Menu bar controller for the sushi AI server.\nVersion \(UpdateChecker.appVersion)\n\nhttps://github.com/derkan/SushiTray"
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    /// Checks sushi CLI + SushiTray GitHub releases. When `interactive`, always shows a result alert.
+    private func checkForUpdates(interactive: Bool) {
+        Task {
+            let report = await UpdateChecker.check()
+            await MainActor.run {
+                self.presentUpdateReport(report, interactive: interactive)
+            }
+        }
+    }
+
+    private func presentUpdateReport(_ report: UpdateChecker.Report, interactive: Bool) {
+        if !report.hasAnyUpdate {
+            guard interactive else { return }
+            let alert = NSAlert()
+            alert.messageText = "You’re up to date"
+            alert.informativeText = report.summary
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Updates available"
+        alert.informativeText = report.summary + "\n\nUpdate now via Homebrew when possible?"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Update")
+        alert.addButton(withTitle: "Later")
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        Task {
+            let log = await UpdateChecker.applyUpdates(from: report)
+            await MainActor.run {
+                let done = NSAlert()
+                done.messageText = "Update finished"
+                done.informativeText = log.isEmpty
+                    ? "Done. Quit and reopen SushiTray if the app was upgraded."
+                    : log + "\n\nQuit and reopen SushiTray if the app was upgraded."
+                done.alertStyle = .informational
+                done.addButton(withTitle: "OK")
+                done.runModal()
+            }
+        }
     }
 
     @objc private func quitApp() {

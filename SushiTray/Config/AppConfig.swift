@@ -16,6 +16,7 @@ final class AppConfig: ObservableObject {
     private let autoStartKey = "autoStartServer"
     private let preferredTerminalKey = "preferredTerminal"
     private let lastAgentDirectoryKey = "lastAgentWorkingDirectory"
+    private let checkForUpdatesKey = "checkForUpdates"
     private let cachedModelsKey = "cachedModels"
 
     @Published var serveCommand: String {
@@ -25,6 +26,11 @@ final class AppConfig: ObservableObject {
     /// When true, start sushi serve on app launch. Default: true.
     @Published var autoStartServer: Bool {
         didSet { defaults.set(autoStartServer, forKey: autoStartKey) }
+    }
+
+    /// When true, check sushi + SushiTray versions on launch. Default: true.
+    @Published var checkForUpdates: Bool {
+        didSet { defaults.set(checkForUpdates, forKey: checkForUpdatesKey) }
     }
 
     /// Terminal app used for `sushi launch` agents.
@@ -53,6 +59,11 @@ final class AppConfig: ObservableObject {
             autoStartServer = true
         } else {
             autoStartServer = defaults.bool(forKey: autoStartKey)
+        }
+        if defaults.object(forKey: checkForUpdatesKey) == nil {
+            checkForUpdates = true
+        } else {
+            checkForUpdates = defaults.bool(forKey: checkForUpdatesKey)
         }
         if let raw = defaults.string(forKey: preferredTerminalKey),
            let terminal = PreferredTerminal(rawValue: raw)
