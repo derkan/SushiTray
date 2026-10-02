@@ -10,7 +10,7 @@
 
 cask "sushitray" do
   version "1.0.0"
-  sha256 "2684f213f7061a4258c69dd58f6cacb950f04acd601e87eee790435589d40de9"
+  sha256 "4f1aa04a9deaf1a94bd36dec7318ccc8e4d75ed71015c4a6093cccdedc5ca5f4"
 
   url "https://github.com/derkan/SushiTray/releases/download/v#{version}/SushiTray-#{version}.zip"
   name "SushiTray"
