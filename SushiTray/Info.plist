@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleIdentifier</key>
 	<string>com.derkan.sushitray</string>
+	<key>CFBundleExecutable</key>
+	<string>SushiTray</string>
 	<key>CFBundleName</key>
 	<string>SushiTray</string>
 	<key>CFBundleIconFile</key>
