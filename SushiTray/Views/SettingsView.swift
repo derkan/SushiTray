@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var sushiMissing = false
     @State private var binaryCheckWorkItem: DispatchWorkItem?
     @State private var isPreparingAnalysis = false
+    @State private var followLog = true
 
     init(config: AppConfig, serverManager: ServerManager) {
         self.config = config
@@ -109,6 +110,9 @@ struct SettingsView: View {
                     copyLogTail()
                 }
                 .disabled(logTailer.lines.isEmpty)
+                Toggle("Follow", isOn: $followLog)
+                    .toggleStyle(.button)
+                    .help("Scroll to the latest log lines as they arrive")
             }
             ScrollViewReader { proxy in
                 ScrollView {
@@ -129,8 +133,19 @@ struct SettingsView: View {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
                 )
+                .onAppear {
+                    if followLog {
+                        proxy.scrollTo("log-bottom", anchor: .bottom)
+                    }
+                }
                 .onChange(of: logTailer.lines.count) { _ in
+                    guard followLog else { return }
                     proxy.scrollTo("log-bottom", anchor: .bottom)
+                }
+                .onChange(of: followLog) { enabled in
+                    if enabled {
+                        proxy.scrollTo("log-bottom", anchor: .bottom)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
