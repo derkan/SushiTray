@@ -28,9 +28,7 @@ struct SettingsView: View {
                 .font(.callout)
             }
 
-            TextEditor(text: $commandDraft)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
+            CommandEditor(text: $commandDraft)
                 .padding(6)
                 .background(Color(nsColor: .textBackgroundColor))
                 .cornerRadius(6)
@@ -83,9 +81,11 @@ struct SettingsView: View {
                 }
                 Spacer()
                 if serverManager.isRunning {
-                    Text("Server running — restart to apply command changes")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Button("Restart") { saveAndRestart() }
+                        .disabled(sushiMissing)
+                } else {
+                    Button("Start") { saveAndStart() }
+                        .disabled(sushiMissing)
                 }
             }
 
@@ -121,7 +121,7 @@ struct SettingsView: View {
         .padding(16)
         .frame(minWidth: 560, minHeight: 480)
         .onAppear {
-            commandDraft = config.serveCommand
+            commandDraft = CommandTokenizer.restoringASCIIHyphens(config.serveCommand)
             refreshBinaryStatusImmediate()
             serverManager.prepareLogTail(command: config.serveCommand)
         }
@@ -134,9 +134,20 @@ struct SettingsView: View {
     }
 
     private func save() {
+        commandDraft = CommandTokenizer.restoringASCIIHyphens(commandDraft)
         config.serveCommand = commandDraft
         refreshBinaryStatusImmediate()
         serverManager.prepareLogTail(command: config.serveCommand)
+    }
+
+    private func saveAndStart() {
+        save()
+        serverManager.start(command: config.serveCommand)
+    }
+
+    private func saveAndRestart() {
+        save()
+        serverManager.restart(command: config.serveCommand)
     }
 
     private func scheduleBinaryStatusRefresh() {

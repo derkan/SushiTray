@@ -2,9 +2,21 @@ import Foundation
 
 /// Shell-like tokenizer for Process argv (supports quotes, escapes, and `\` line continuation).
 enum CommandTokenizer {
+    /// macOS smart dashes turn `--` into `–`/`—`; restore ASCII hyphens for flags.
+    static func restoringASCIIHyphens(_ input: String) -> String {
+        input
+            .replacingOccurrences(of: "\u{2014}", with: "--") // em dash —
+            .replacingOccurrences(of: "\u{2013}", with: "--") // en dash –
+            .replacingOccurrences(
+                of: #"(^|[\s])-{3,}"#,
+                with: "$1--",
+                options: .regularExpression
+            )
+    }
+
     static func tokenize(_ input: String) -> [String] {
         // Normalize shell line continuations before parsing.
-        let normalized = input.replacingOccurrences(
+        let normalized = restoringASCIIHyphens(input).replacingOccurrences(
             of: #"\\\r?\n"#,
             with: " ",
             options: .regularExpression

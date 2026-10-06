@@ -51,7 +51,7 @@ final class AppConfig: ObservableObject {
 
     private init() {
         if let saved = defaults.string(forKey: commandKey), !saved.isEmpty {
-            serveCommand = saved
+            serveCommand = CommandTokenizer.restoringASCIIHyphens(saved)
         } else {
             serveCommand = Self.defaultCommand
         }
@@ -73,6 +73,7 @@ final class AppConfig: ObservableObject {
             preferredTerminal = .default
         }
         lastAgentWorkingDirectory = defaults.string(forKey: lastAgentDirectoryKey)
+        defaults.set(serveCommand, forKey: commandKey)
     }
 
     var logFilePath: String {
