@@ -51,6 +51,12 @@ final class LogTailer: ObservableObject {
         start(path: path)
     }
 
+    /// Clears the in-memory tail shown in Settings. The log file is unchanged.
+    func clearDisplayedLines() {
+        let apply = { self.lines = [] }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
+    }
+
     /// Call immediately before spawning `sushi serve` so export skips prior runs.
     func markSessionStart() {
         sessionStartOffset = currentFileSize() ?? lastSize

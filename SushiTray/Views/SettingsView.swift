@@ -97,8 +97,19 @@ struct SettingsView: View {
 
             Divider()
 
-            Text("Log Tail")
-                .font(.headline)
+            HStack {
+                Text("Log Tail")
+                    .font(.headline)
+                Spacer()
+                Button("Clear") {
+                    logTailer.clearDisplayedLines()
+                }
+                .disabled(logTailer.lines.isEmpty)
+                Button("Copy") {
+                    copyLogTail()
+                }
+                .disabled(logTailer.lines.isEmpty)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     Text(
@@ -137,6 +148,12 @@ struct SettingsView: View {
         .onDisappear {
             binaryCheckWorkItem?.cancel()
         }
+    }
+
+    private func copyLogTail() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(logTailer.lines.joined(separator: "\n"), forType: .string)
     }
 
     private func save() {
