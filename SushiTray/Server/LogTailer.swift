@@ -12,6 +12,8 @@ final class LogTailer: ObservableObject {
     private var onLine: ((String) -> Void)?
     private var buffer = Data()
     private var lastSize: UInt64 = 0
+    /// Byte offset of the log file when the current serve process started.
+    private var sessionStartOffset: UInt64 = 0
 
     /// Bytes to read from EOF when seeding the in-memory tail.
     private let tailReadBytes: UInt64 = 64 * 1024
@@ -47,6 +49,49 @@ final class LogTailer: ObservableObject {
     func reload(path: String) {
         stop()
         start(path: path)
+    }
+
+    /// Call immediately before spawning `sushi serve` so export skips prior runs.
+    func markSessionStart() {
+        sessionStartOffset = currentFileSize() ?? lastSize
+    }
+
+    /// Log text written since the last `markSessionStart()`, capped at `maxBytes` from EOF.
+    func textSinceSessionStart(maxBytes: UInt64 = 512 * 1024) -> String {
+        guard let path else { return "" }
+        let fm = FileManager.default
+        guard let attrs = try? fm.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? UInt64,
+              size > 0,
+              let handle = FileHandle(forReadingAtPath: path)
+        else {
+            return ""
+        }
+        defer { try? handle.close() }
+
+        var start = sessionStartOffset
+        if start > size {
+            start = 0
+        }
+        var offset = start
+        if size > start, size - start > maxBytes {
+            offset = size - maxBytes
+        }
+        handle.seek(toFileOffset: offset)
+        var data = stripNULs(handle.readDataToEndOfFile())
+        if offset > start, let nl = data.firstIndex(of: 0x0A) {
+            data = data.suffix(from: data.index(after: nl))
+        }
+        return String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func currentFileSize() -> UInt64? {
+        guard let path,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? UInt64
+        else { return nil }
+        return size
     }
 
     private func openAndSeekToEnd() {

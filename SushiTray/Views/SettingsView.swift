@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var commandDraft: String = ""
     @State private var sushiMissing = false
     @State private var binaryCheckWorkItem: DispatchWorkItem?
+    @State private var isPreparingAnalysis = false
 
     init(config: AppConfig, serverManager: ServerManager) {
         self.config = config
@@ -83,6 +84,11 @@ struct SettingsView: View {
                 if serverManager.isRunning {
                     Button("Restart") { saveAndRestart() }
                         .disabled(sushiMissing)
+                    Button(isPreparingAnalysis ? "Preparing…" : "Analyze…") {
+                        openPerformanceAnalysisChat()
+                    }
+                    .disabled(serverManager.chatURL == nil || isPreparingAnalysis)
+                    .help("Copies the analysis prompt to the clipboard and opens chat")
                 } else {
                     Button("Start") { saveAndStart() }
                         .disabled(sushiMissing)
@@ -148,6 +154,52 @@ struct SettingsView: View {
     private func saveAndRestart() {
         save()
         serverManager.restart(command: config.serveCommand)
+    }
+
+    private func openPerformanceAnalysisChat() {
+        guard let url = serverManager.chatURL, !isPreparingAnalysis else { return }
+        let command = CommandTokenizer.restoringASCIIHyphens(config.serveCommand)
+        let logs = logTailer.textSinceSessionStart()
+        let tokens = CommandTokenizer.tokenize(command)
+        guard let first = tokens.first,
+              let binary = SushiBinary.resolve(fromCommandToken: first)
+        else {
+            let alert = NSAlert()
+            alert.messageText = "sushi not found"
+            alert.informativeText =
+                "Could not resolve the sushi binary from the serve command."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+
+        isPreparingAnalysis = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let help = PerformanceAnalysisPrompt.fetchServeHelp(binary: binary)
+            let message = PerformanceAnalysisPrompt.message(
+                serveCommand: command,
+                logs: logs,
+                serveHelp: help
+            )
+            DispatchQueue.main.async {
+                isPreparingAnalysis = false
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(message, forType: .string)
+
+                let alert = NSAlert()
+                alert.messageText = "Analysis prompt copied"
+                alert.informativeText =
+                    "The prompt is on the clipboard (includes `sushi serve -h`). After chat opens, paste it with ⌘V."
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "Open Chat")
+                alert.addButton(withTitle: "Cancel")
+                let response = alert.runModal()
+                if response == .alertFirstButtonReturn {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        }
     }
 
     private func scheduleBinaryStatusRefresh() {

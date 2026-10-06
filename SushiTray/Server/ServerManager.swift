@@ -73,6 +73,7 @@ final class ServerManager: ObservableObject {
             port = launch.connection.port
             currentLogPath = launch.logPath
             logTailer.reload(path: launch.logPath)
+            logTailer.markSessionStart()
             launchOwnedProcess(binary: launch.binary, args: launch.args)
             scanLogsForChatURLOnce()
         }
