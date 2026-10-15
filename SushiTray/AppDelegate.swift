@@ -359,19 +359,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
 
-        Task {
-            let log = await UpdateChecker.applyUpdates(from: report)
-            await MainActor.run {
-                let done = NSAlert()
-                done.messageText = "Update finished"
-                done.informativeText = log.isEmpty
-                    ? "Done. Quit and reopen SushiTray if the app was upgraded."
-                    : log + "\n\nQuit and reopen SushiTray if the app was upgraded."
-                done.alertStyle = .informational
-                done.addButton(withTitle: "OK")
-                done.runModal()
-            }
+        Task { @MainActor in
+            await self.runUpdateFlow(report: report)
         }
+    }
+
+    @MainActor
+    private func runUpdateFlow(report: UpdateChecker.Report) async {
+        let wasRunning = serverManager.isRunning
+        let progress = makeUpdateProgressAlert()
+        let progressWindow = progress.window
+        progressWindow.center()
+        progressWindow.level = NSWindow.Level.modalPanel
+        NSApp.activate(ignoringOtherApps: true)
+        progressWindow.makeKeyAndOrderFront(nil)
+
+        let result = await UpdateChecker.applyUpdates(from: report)
+
+        progressWindow.orderOut(nil)
+
+        var bodyLines = result.summaryLines
+        if result.sushiUpdated, wasRunning {
+            serverManager.restart(command: config.serveCommand)
+            bodyLines.append("Server restarted with the new sushi binary.")
+        }
+
+        let done = NSAlert()
+        done.messageText = updateResultTitle(result)
+        done.informativeText = bodyLines.isEmpty ? "Done." : bodyLines.joined(separator: "\n")
+        done.alertStyle = result.hasFailure ? .warning : .informational
+
+        if result.appUpdated {
+            done.addButton(withTitle: "Relaunch SushiTray")
+            done.addButton(withTitle: "OK")
+            let response = done.runModal()
+            if response == .alertFirstButtonReturn {
+                UpdateChecker.relaunchApp()
+            }
+        } else {
+            done.addButton(withTitle: "OK")
+            done.runModal()
+        }
+    }
+
+    @MainActor
+    private func makeUpdateProgressAlert() -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Updating…"
+        alert.informativeText = "Installing updates. This may take a minute."
+        alert.alertStyle = .informational
+        let indicator = NSProgressIndicator(
+            frame: NSRect(x: 0, y: 0, width: 260, height: 16)
+        )
+        indicator.style = .bar
+        indicator.isIndeterminate = true
+        indicator.startAnimation(nil)
+        alert.accessoryView = indicator
+        return alert
+    }
+
+    private func updateResultTitle(_ result: UpdateChecker.UpdateResult) -> String {
+        if result.hasFailure, result.hasSuccess {
+            return "Partially updated"
+        }
+        if result.hasFailure {
+            return "Update failed"
+        }
+        return "Update complete"
     }
 
     @objc private func quitApp() {

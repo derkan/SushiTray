@@ -102,10 +102,12 @@ Editable in Settings:
 
 ```text
 sushi serve --model ~/.sushi/models/Qwen3.8-Flash-Next-Sushi-2bpw \
-  --mtp --kv-quant 8 --mtp-head-kv-quant --ctx-size 128000 \
+  --mtp --kv-quant 8 --mtp-head-kv-quant --qwen-gdn 16 --ctx-size 131072 \
   --max-tokens 32000 --prefix-cache-disk 20GB --prefix-cache-entries 1 \
   --prefix-cache-mem 1GB --temp 1 --skip-mem-preflight
 ```
+
+Aligned with [sushi](https://github.com/beamivalice/sushi) ≥ 1.2.3 (48 GB / Sushi-2bpw). On 32 GB use `--ssd-budget-gb` streaming; on 64 GB prefer Sushi-2.6bpw with `--ctx-size 250000`. See [sushi usage](https://github.com/beamivalice/sushi/blob/main/docs/usage.md).
 
 Default listen address is sushi’s default (`127.0.0.1:12345`) unless you add `--host` / `--port`.
 

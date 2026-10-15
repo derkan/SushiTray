@@ -4,9 +4,11 @@ import Combine
 final class AppConfig: ObservableObject {
     static let shared = AppConfig()
 
+    /// Matches sushi docs “48 GB Mac, Sushi-2bpw” plus optional RAM prefix cache.
+    /// `--qwen-gdn 16` is required on 32/48/64 GB recipes (sushi ≥ 1.2.3).
     static let defaultCommand = """
     sushi serve --model ~/.sushi/models/Qwen3.8-Flash-Next-Sushi-2bpw \
-      --mtp --kv-quant 8 --mtp-head-kv-quant --ctx-size 128000 \
+      --mtp --kv-quant 8 --mtp-head-kv-quant --qwen-gdn 16 --ctx-size 131072 \
       --max-tokens 32000 --prefix-cache-disk 20GB --prefix-cache-entries 1 \
       --prefix-cache-mem 1GB --temp 1 --skip-mem-preflight
     """

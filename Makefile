@@ -53,6 +53,9 @@ bundle:
 	@cp SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar.png $(ICONS_DIR)/statusbar.png 2>/dev/null || true
 	@cp SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png $(ICONS_DIR)/statusbar@2x.png 2>/dev/null || true
 	@cp SushiTray/AppIcon.icns $(ICONS_DIR)/AppIcon.icns 2>/dev/null || true
+	@# Ad-hoc sign the whole .app so Gatekeeper does not report it as "damaged"
+	@# after download (linker-signed binary alone leaves Info.plist unbound).
+	@codesign --force --deep --sign - $(APP_BUNDLE)
 	@echo "Bundle ready: $(APP_BUNDLE)"
 
 bundle-debug:

@@ -36,11 +36,12 @@ enum PerformanceAnalysisPrompt {
 
     Additional hard constraints:
     - Prefer the smallest number of flags that actually matter. Do not add advanced MTP knobs (--max-mtp-ctx, --mtp-history-window, --mtp-min-depth, etc.) unless the logs clearly show a problem that those flags solve.
-    - On 48 GB + Sushi-2bpw + kv-quant 4, the practical context ceiling is ~180-192k. Do not drop below 160k unless memory pressure is extreme.
+    - On 32/48/64 GB Qwen recipes always pass --qwen-gdn 16 (bf16 GatedDeltaNet state). Default is 32 (f32); omit only on 96 GB+.
+    - Context ceilings with --qwen-gdn 16 (sushi ≥ 1.2.3 memory table): 48 GB Sushi-2bpw ≈ 200k (kv 8) / 304k (kv 4); 64 GB Sushi-2.6bpw ≈ 528k (kv 8) / 840k (kv 4). 32 GB streamed Sushi-2bpw can admit ~250k. Do not drop far below these unless memory pressure is extreme.
     - Keep --prefill-chunk at 2048 unless logs show repeated "chunk stepped down" messages.
     - Only recommend --no-vision when the user explicitly says they do not use images, or the logs prove vision is never used.
     - Prefer --reasoning-budget in the 8k–16k range for agent work; do not cut max-tokens below 20k without strong evidence.
-    - Never invent or recommend flags that do not appear in the provided `sushi serve -h` output.
+    - Never invent or recommend flags that do not appear in the provided `sushi serve -h` output. --qwen-gdn takes 32|16 (not fp32).
 
     Output format:
     - Short diagnosis (current state of the system and main bottlenecks)

@@ -41,6 +41,66 @@ enum UpdateChecker {
         }
     }
 
+    struct ComponentResult: Equatable {
+        enum Outcome: Equatable {
+            case updated
+            case failed
+            case skipped
+            case openedReleases
+        }
+
+        var name: String
+        var from: String?
+        var to: String?
+        var outcome: Outcome
+        /// Short error / last brew line — never a full log dump.
+        var detail: String?
+    }
+
+    struct UpdateResult: Equatable {
+        var components: [ComponentResult]
+
+        var sushiUpdated: Bool {
+            components.contains { $0.name == "sushi" && $0.outcome == .updated }
+        }
+
+        var appUpdated: Bool {
+            components.contains { $0.name == "SushiTray" && $0.outcome == .updated }
+        }
+
+        var hasFailure: Bool {
+            components.contains { $0.outcome == .failed }
+        }
+
+        var hasSuccess: Bool {
+            components.contains { $0.outcome == .updated || $0.outcome == .openedReleases }
+        }
+
+        var summaryLines: [String] {
+            components.compactMap { component in
+                switch component.outcome {
+                case .updated:
+                    if let from = component.from, let to = component.to {
+                        return "\(component.name) \(from) → \(to)"
+                    }
+                    if let to = component.to {
+                        return "\(component.name) → \(to)"
+                    }
+                    return "\(component.name) updated"
+                case .failed:
+                    if let detail = component.detail, !detail.isEmpty {
+                        return "\(component.name) failed: \(detail)"
+                    }
+                    return "\(component.name) failed"
+                case .skipped:
+                    return nil
+                case .openedReleases:
+                    return "\(component.name): opened GitHub Releases"
+                }
+            }
+        }
+    }
+
     static var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
@@ -61,15 +121,31 @@ enum UpdateChecker {
     }
 
     /// Runs brew/sushi update commands for components that need it.
-    static func applyUpdates(from report: Report) async -> String {
-        var log: [String] = []
+    static func applyUpdates(from report: Report) async -> UpdateResult {
+        var components: [ComponentResult] = []
         if report.sushiNeedsUpdate {
-            log.append(await runUpdateSushi())
+            components.append(await runUpdateSushi(from: report.sushiInstalled, expected: report.sushiLatest))
         }
         if report.appNeedsUpdate {
-            log.append(await runUpdateApp())
+            components.append(await runUpdateApp(from: report.appInstalled, expected: report.appLatest))
         }
-        return log.filter { !$0.isEmpty }.joined(separator: "\n")
+        return UpdateResult(components: components)
+    }
+
+    /// Relaunches this app bundle, then terminates the current process.
+    static func relaunchApp() {
+        let url = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
+        // Fallback if the completion is delayed or skipped.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            NSApp.terminate(nil)
+        }
     }
 
     // MARK: - Version discovery
@@ -89,7 +165,7 @@ enum UpdateChecker {
 
     private static func installedSushiVersion() async -> String? {
         guard let binary = SushiBinary.resolve() else { return nil }
-        let out = await runCapture(executable: binary, arguments: ["--version"])
+        let (_, out) = await runCapture(executable: binary, arguments: ["--version"])
         // "sushi 1.1.1"
         if let match = out.range(of: #"sushi\s+([\d.]+)"#, options: .regularExpression) {
             let s = String(out[match])
@@ -102,7 +178,7 @@ enum UpdateChecker {
 
     private static func sushiUpdateCheckLatest() async -> String? {
         guard let binary = SushiBinary.resolve() else { return nil }
-        let out = await runCapture(executable: binary, arguments: ["update", "--check"])
+        let (_, out) = await runCapture(executable: binary, arguments: ["update", "--check"])
         // "... (latest release 1.1.1)" or similar
         if let match = out.range(of: #"latest release\s+([\d.]+)"#, options: [.regularExpression, .caseInsensitive]) {
             let s = String(out[match])
@@ -143,31 +219,90 @@ enum UpdateChecker {
 
     // MARK: - Apply
 
-    private static func runUpdateSushi() async -> String {
-        // Prefer Homebrew when the formula is present; otherwise sushi's own updater.
+    private static func runUpdateSushi(from: String?, expected: String?) async -> ComponentResult {
+        let fromVersion = from
+        let (exitCode, output): (Int32, String)
         if await brewHasFormula("sushi") {
-            let out = await runCapture(
+            (exitCode, output) = await runCapture(
                 executable: "/opt/homebrew/bin/brew",
                 arguments: ["upgrade", "beamivalice/tap/sushi"],
                 fallback: "/usr/local/bin/brew"
             )
-            return "sushi (brew): \(out.isEmpty ? "done" : out)"
+        } else if let binary = SushiBinary.resolve() {
+            (exitCode, output) = await runCapture(executable: binary, arguments: ["update"])
+        } else {
+            return ComponentResult(
+                name: "sushi",
+                from: fromVersion,
+                to: expected,
+                outcome: .failed,
+                detail: "binary not found"
+            )
         }
-        guard let binary = SushiBinary.resolve() else {
-            return "sushi: binary not found"
+
+        SushiBinary.clearCache()
+        let newVersion = await installedSushiVersion()
+
+        if let fromVersion, let newVersion, compareVersions(newVersion, fromVersion) > 0 {
+            return ComponentResult(
+                name: "sushi",
+                from: fromVersion,
+                to: newVersion,
+                outcome: .updated,
+                detail: nil
+            )
         }
-        let out = await runCapture(executable: binary, arguments: ["update"])
-        return "sushi update: \(out.isEmpty ? "done" : out)"
+        if exitCode == 0, let expected, let newVersion, compareVersions(newVersion, expected) >= 0 {
+            return ComponentResult(
+                name: "sushi",
+                from: fromVersion,
+                to: newVersion,
+                outcome: .updated,
+                detail: nil
+            )
+        }
+        if exitCode == 0, newVersion != nil {
+            // brew may report "already installed" with exit 0 — treat as updated when we asked to upgrade.
+            return ComponentResult(
+                name: "sushi",
+                from: fromVersion,
+                to: newVersion ?? expected,
+                outcome: .updated,
+                detail: nil
+            )
+        }
+        return ComponentResult(
+            name: "sushi",
+            from: fromVersion,
+            to: expected,
+            outcome: .failed,
+            detail: shortFailureDetail(from: output, exitCode: exitCode)
+        )
     }
 
-    private static func runUpdateApp() async -> String {
+    private static func runUpdateApp(from: String?, expected: String?) async -> ComponentResult {
         if await brewHasCask("sushitray") {
-            let out = await runCapture(
+            let (exitCode, output) = await runCapture(
                 executable: "/opt/homebrew/bin/brew",
                 arguments: ["upgrade", "--cask", "sushitray"],
                 fallback: "/usr/local/bin/brew"
             )
-            return "SushiTray (brew): \(out.isEmpty ? "done — quit and reopen the app" : out)"
+            if exitCode == 0 {
+                return ComponentResult(
+                    name: "SushiTray",
+                    from: from,
+                    to: expected,
+                    outcome: .updated,
+                    detail: nil
+                )
+            }
+            return ComponentResult(
+                name: "SushiTray",
+                from: from,
+                to: expected,
+                outcome: .failed,
+                detail: shortFailureDetail(from: output, exitCode: exitCode)
+            )
         }
         // Not brew-installed: open releases page.
         await MainActor.run {
@@ -175,7 +310,27 @@ enum UpdateChecker {
                 NSWorkspace.shared.open(url)
             }
         }
-        return "SushiTray: opened GitHub Releases (not installed via Homebrew)"
+        return ComponentResult(
+            name: "SushiTray",
+            from: from,
+            to: expected,
+            outcome: .openedReleases,
+            detail: nil
+        )
+    }
+
+    private static func shortFailureDetail(from output: String, exitCode: Int32) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "exit \(exitCode)"
+        }
+        let line = trimmed
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last(where: { !$0.isEmpty })
+            ?? trimmed
+        if line.count <= 160 { return line }
+        return String(line.prefix(157)) + "…"
     }
 
     private static func brewHasCask(_ name: String) async -> Bool {
@@ -221,7 +376,7 @@ enum UpdateChecker {
         executable: String,
         arguments: [String],
         fallback: String? = nil
-    ) async -> String {
+    ) async -> (exitCode: Int32, output: String) {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 let path: String
@@ -232,7 +387,7 @@ enum UpdateChecker {
                 {
                     path = fallback
                 } else {
-                    cont.resume(returning: "")
+                    cont.resume(returning: (-1, "command not found"))
                     return
                 }
                 let process = Process()
@@ -253,13 +408,13 @@ enum UpdateChecker {
                     try process.run()
                     process.waitUntilExit()
                 } catch {
-                    cont.resume(returning: error.localizedDescription)
+                    cont.resume(returning: (-1, error.localizedDescription))
                     return
                 }
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 let text = String(data: data, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                cont.resume(returning: text)
+                cont.resume(returning: (process.terminationStatus, text))
             }
         }
     }
