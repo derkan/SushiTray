@@ -5,7 +5,7 @@
 #
 # After a release, CI updates version/sha256 when HOMEBREW_TAP_TOKEN is set.
 # Manual bump:
-#   VERSION=1.0.1
+#   VERSION=1.0.2
 #   SHA=$(curl -sL "https://github.com/derkan/SushiTray/releases/download/v${VERSION}/SushiTray-${VERSION}.zip" | shasum -a 256 | awk '{print $1}')
 
 cask "sushitray" do
