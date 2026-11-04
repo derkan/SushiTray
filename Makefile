@@ -1,6 +1,9 @@
-.PHONY: build run clean xcode resolve icons help dist
+.PHONY: build run clean xcode resolve icons help dist test release
 
 SWIFT := swift
+SWIFT_FLAGS ?=
+RELEASE_BRANCH ?= main
+export VERSION RELEASE_BRANCH
 CONFIG ?= debug
 # Prefer classic SPM layout; fall back to Xcode-integrated `.build/debug` symlink.
 BUILD_DIR_CLASSIC := .build/arm64-apple-macosx/$(CONFIG)
@@ -12,8 +15,8 @@ APP_PATH := $(APP_BUNDLE)/Contents/MacOS/SushiTray
 PLIST_PATH := $(APP_BUNDLE)/Contents/Info.plist
 ICONS_DIR := $(APP_BUNDLE)/Contents/Resources
 ICON_SRC := assets/icon.png
-VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist 2>/dev/null || echo 0.0.0)
-DIST_ZIP := dist/SushiTray-$(VERSION).zip
+APP_VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist 2>/dev/null || echo 0.0.0)
+DIST_ZIP := dist/SushiTray-$(APP_VERSION).zip
 
 define resolve_binary
 $(shell \
@@ -30,12 +33,12 @@ $(shell \
 endef
 
 build:
-	$(SWIFT) build -c release --product SushiTray
+	$(SWIFT) build $(SWIFT_FLAGS) -c release --product SushiTray
 
 build-release: build
 
 build-debug:
-	$(SWIFT) build --product SushiTray
+	$(SWIFT) build $(SWIFT_FLAGS) --product SushiTray
 
 bundle:
 	@$(MAKE) build-$(CONFIG)
@@ -92,6 +95,13 @@ dist: bundle-release
 	@echo "Created $(DIST_ZIP)"
 	@shasum -a 256 $(DIST_ZIP)
 
+test:
+	$(SWIFT) test $(SWIFT_FLAGS) -Xswiftc -warnings-as-errors
+
+# Requires committed release-notes/$(VERSION).md and a clean tracked worktree.
+release:
+	@python3 scripts/release.py
+
 icons:
 	@echo "Generating status bar icons (original colors)..."
 	@mkdir -p SushiTray/Assets.xcassets/StatusBarIcon.imageset
@@ -131,5 +141,7 @@ help:
 	@echo "  bundle / bundle-debug / bundle-release"
 	@echo "  run / run-release"
 	@echo "  dist     release zip → dist/SushiTray-\$$(version).zip"
+	@echo "  test     run regression tests"
+	@echo "  release VERSION=X.Y.Z  test, build, bump, commit, tag and push"
 	@echo "  icons    regenerate from assets/icon.png"
 	@echo "  clean / resolve / xcode"

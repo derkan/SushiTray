@@ -142,18 +142,23 @@ make dist           # → dist/SushiTray-<version>.zip + sha256
 |--------|-------------|
 | `make run` / `run-release` | Build, bundle, launch |
 | `make dist` | Release zip for GitHub / Homebrew |
+| `make test` | Regression tests |
+| `make release VERSION=X.Y.Z` | Test, build, version commit, tag, push and publish via CI |
 | `make icons` | Regenerate icons |
 | `make clean` | Remove build products |
 
-Publishing a release:
+Publishing a release (Python 3 and Git push access required):
+
+1. Write and commit `release-notes/X.Y.Z.md` with the changes and compatibility requirements.
+2. Commit other tracked changes, then run:
 
 ```bash
-# bump CFBundleShortVersionString in SushiTray/Info.plist if needed
-git tag v1.0.0
-git push origin v1.0.0
+make release VERSION=1.1.0
 ```
 
-GitHub Actions (`.github/workflows/release.yml`) builds the zip, creates the GitHub Release, and (optional) updates [derkan/homebrew-tap](https://github.com/derkan/homebrew-tap) when the `HOMEBREW_TAP_TOKEN` secret is set (repo scope: `contents:write` on the tap).
+The command validates the version, increments the app build number, runs tests, builds the signed ZIP, commits the version bump, and atomically pushes the branch and annotated tag to `origin`. The default destination branch is `main` (`RELEASE_BRANCH` overrides it). Uncommitted tracked changes are rejected; use a clean worktree if you have unrelated edits.
+
+GitHub Actions (`.github/workflows/release.yml`) tests and builds the tagged commit, then publishes the ZIP with the committed release notes, installation instructions and checksum. If `HOMEBREW_TAP_TOKEN` is configured, it also updates [derkan/homebrew-tap](https://github.com/derkan/homebrew-tap).
 
 Open in Xcode: `make xcode`
 

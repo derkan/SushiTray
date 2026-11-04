@@ -15,13 +15,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Test
+        run: make test
+
       - name: Build release zip
         run: make dist
 
       - name: Read version and checksum
         id: meta
         run: |
+          set -euo pipefail
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist)
+          test "$GITHUB_REF_NAME" = "v${VERSION}"
           ZIP="dist/SushiTray-${VERSION}.zip"
           SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -29,39 +34,54 @@ jobs:
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
           echo "Version $VERSION  sha256=$SHA"
 
+      - name: Prepare release notes
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA256: ${{ steps.meta.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          cp "release-notes/${VERSION}.md" "$RUNNER_TEMP/release-body.md"
+          cat >> "$RUNNER_TEMP/release-body.md" <<EOF
+
+          ## Install with Homebrew
+
+          \`\`\`bash
+          brew tap derkan/tap
+          brew trust derkan/tap
+          brew install --cask sushitray
+          \`\`\`
+
+          Or upgrade:
+
+          \`\`\`bash
+          brew upgrade --cask sushitray
+          \`\`\`
+
+          **SHA256:** \`${SHA256}\`
+
+          > Not notarized. If Gatekeeper blocks the app:
+          > \`xattr -cr /Applications/SushiTray.app\`
+          EOF
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: SushiTray ${{ steps.meta.outputs.version }}
           files: ${{ steps.meta.outputs.zip }}
-          generate_release_notes: true
-          body: |
-            ## Install with Homebrew
-
-            ```bash
-            brew tap derkan/tap
-            brew trust derkan/tap
-            brew install --cask sushitray
-            ```
-
-            Or upgrade:
-
-            ```bash
-            brew upgrade --cask sushitray
-            ```
-
-            **SHA256:** `${{ steps.meta.outputs.sha256 }}`
-
-            > Not notarized. If Gatekeeper blocks the app:
-            > `xattr -cr /Applications/SushiTray.app`
+          fail_on_unmatched_files: true
+          body_path: ${{ runner.temp }}/release-body.md
 
       - name: Update Homebrew tap cask
-        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.meta.outputs.version }}
           SHA256: ${{ steps.meta.outputs.sha256 }}
         run: |
           set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not configured; skipping tap update."
+            exit 0
+          fi
           TMP=$(mktemp -d)
           git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/derkan/homebrew-tap.git" "$TMP"
           CASK="$TMP/Casks/sushitray.rb"
