@@ -55,33 +55,20 @@ enum PerformanceAnalysisPrompt {
     /// Runs `<binary> serve -h` and returns combined stdout/stderr.
     static func fetchServeHelp(binary: String) -> String {
         let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
+        let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = ["serve", "-h"]
-        process.standardOutput = stdout
-        process.standardError = stderr
+        process.standardOutput = pipe
+        process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return "(failed to run \(binary) serve -h: \(error.localizedDescription))"
         }
-        let outData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderr.fileHandleForReading.readDataToEndOfFile()
-        let out = String(data: outData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let err = String(data: errData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let combined: String
-        if out.isEmpty {
-            combined = err
-        } else if err.isEmpty {
-            combined = out
-        } else {
-            combined = out + "\n" + err
-        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let combined = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         if combined.isEmpty {
             return "(empty help output from \(binary) serve -h; exit \(process.terminationStatus))"
         }

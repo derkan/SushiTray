@@ -19,11 +19,9 @@ final class ServerManager: ObservableObject {
     @Published private(set) var gpuUtilization: Double?
     @Published private(set) var serverMemoryFraction: Double?
     @Published private(set) var errorMessage: String?
-    @Published private(set) var port: Int = ServeCommandParser.defaultPort
-    @Published private(set) var host: String = ServeCommandParser.defaultHost
     @Published private(set) var chatURL: URL?
 
-    @Published private(set) var decodeHistory: [DecodePoint] = []
+    private(set) var decodeHistory: [DecodePoint] = []
     @Published private(set) var metricsError: String?
     @Published private(set) var gpuClockMHz: Double?
     @Published private(set) var serverMemoryMB: Double?
@@ -41,7 +39,7 @@ final class ServerManager: ObservableObject {
     private var launchedModelID: String?
     private var tickTimer: Timer?
 
-    private init() {}
+    init() {}
 
     func prepareLogTail(command: String) {
         let path = ServeCommandParser.logFilePath(fromCommand: command)
@@ -67,8 +65,6 @@ final class ServerManager: ObservableObject {
                 .map { ($0 as NSString).lastPathComponent }
             modelState = nil
             launchConnection = launch.connection
-            host = launch.connection.host
-            port = launch.connection.port
             logTailer.reload(path: launch.logPath)
             logTailer.markSessionStart()
             launchOwnedProcess(binary: launch.binary, args: launch.args)
@@ -120,7 +116,10 @@ final class ServerManager: ObservableObject {
         tickTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.tick()
         }
-        if let tickTimer { RunLoop.main.add(tickTimer, forMode: .common) }
+        if let tickTimer {
+            tickTimer.tolerance = 0.1
+            RunLoop.main.add(tickTimer, forMode: .common)
+        }
         tick()
     }
 
@@ -175,9 +174,9 @@ final class ServerManager: ObservableObject {
         prefillProgress = nil
         isDecoding = false
         if chatURL != nil { chatURL = nil }
-        assign(&prefillTokensPerSecond, nil)
-        assign(&genTokensPerSecond, nil)
-        assign(&gpuUtilization, nil)
+        assign(\.prefillTokensPerSecond, nil)
+        assign(\.genTokensPerSecond, nil)
+        assign(\.gpuUtilization, nil)
         serverMemoryFraction = nil
         contextUsage = nil
         activeSessionCount = 0
@@ -208,46 +207,50 @@ final class ServerManager: ObservableObject {
                 let sample = try await MetricsClient.fetch(connection: connection, since: since)
                 guard let self, !Task.isCancelled, self.sessionID == id, self.isRunning else { return }
                 self.metricsTask = nil
-                let live = self.metricsTracker.observe(sample, at: started)
-                self.activeSessionCount = sample.activeSessions.count
-                self.contextUsage = sample.singleSessionContext
-                self.isPrefilling = sample.isPrefilling
-                self.prefillProgress = sample.prefillProgress
-                self.isDecoding = sample.isDecoding
-                let active = sample.isPrefilling || sample.isDecoding
-                self.assign(&self.genTokensPerSecond, active ? live : self.metricsTracker.lastDecode)
-                self.assign(&self.prefillTokensPerSecond, self.metricsTracker.lastPrefill)
-                self.recordDecode(live ?? (active ? nil : 0), at: started)
-                self.assign(&self.gpuUtilization, sample.gauges["gpu_utilization_pct"].map { min(1, max(0, $0 / 100)) })
-                self.assign(&self.gpuClockMHz, sample.gauges["gpu_clock_mhz"].flatMap { $0 > 0 ? $0 : nil })
-                self.assign(&self.serverMemoryMB, sample.memoryMB)
-                self.serverMemoryFraction = sample.memoryFraction(totalBytes: ProcessInfo.processInfo.physicalMemory)
-                self.metricsError = nil
-                self.isReady = true
-                self.chatURL = connection.url(path: "/chat")
+                self.applyMetrics(sample, at: started)
                 self.onTick?()
             } catch {
                 guard let self, !Task.isCancelled, self.sessionID == id else { return }
                 self.metricsTask = nil
                 self.metricsTracker.interrupt()
                 self.recordDecode(nil, at: started)
-                self.metricsError = error.localizedDescription
-                self.isReady = false
-                self.contextUsage = nil
-                self.activeSessionCount = 0
-                self.isPrefilling = false
-                self.prefillProgress = nil
-                self.isDecoding = false
-                self.chatURL = nil
-                self.assign(&self.genTokensPerSecond, nil)
-                self.assign(&self.prefillTokensPerSecond, self.metricsTracker.lastPrefill)
-                self.assign(&self.gpuUtilization, nil)
-                self.gpuClockMHz = nil
-                self.serverMemoryMB = nil
-                self.serverMemoryFraction = nil
+                self.publishIfChanged(\.metricsError, error.localizedDescription)
+                self.publishIfChanged(\.isReady, false)
+                self.publishIfChanged(\.contextUsage, nil)
+                self.publishIfChanged(\.activeSessionCount, 0)
+                self.publishIfChanged(\.isPrefilling, false)
+                self.publishIfChanged(\.prefillProgress, nil)
+                self.publishIfChanged(\.isDecoding, false)
+                self.publishIfChanged(\.chatURL, nil)
+                self.assign(\.genTokensPerSecond, nil)
+                self.assign(\.prefillTokensPerSecond, self.metricsTracker.lastPrefill)
+                self.assign(\.gpuUtilization, nil)
+                self.publishIfChanged(\.gpuClockMHz, nil)
+                self.publishIfChanged(\.serverMemoryMB, nil)
+                self.publishIfChanged(\.serverMemoryFraction, nil)
                 self.onTick?()
             }
         }
+    }
+
+    func applyMetrics(_ sample: SushiMetrics, at started: TimeInterval) {
+        let live = metricsTracker.observe(sample, at: started)
+        publishIfChanged(\.activeSessionCount, sample.activeSessions.count)
+        publishIfChanged(\.contextUsage, sample.singleSessionContext)
+        publishIfChanged(\.isPrefilling, sample.isPrefilling)
+        publishIfChanged(\.prefillProgress, sample.prefillProgress)
+        publishIfChanged(\.isDecoding, sample.isDecoding)
+        let active = sample.isPrefilling || sample.isDecoding
+        assign(\.genTokensPerSecond, active ? live : metricsTracker.lastDecode)
+        assign(\.prefillTokensPerSecond, metricsTracker.lastPrefill)
+        recordDecode(live ?? (active ? nil : 0), at: started)
+        assign(\.gpuUtilization, sample.gauges["gpu_utilization_pct"].map { min(1, max(0, $0 / 100)) }, tolerance: 0.005)
+        assign(\.gpuClockMHz, sample.gauges["gpu_clock_mhz"].flatMap { $0 > 0 ? $0 : nil })
+        assign(\.serverMemoryMB, sample.memoryMB)
+        publishIfChanged(\.serverMemoryFraction, sample.memoryFraction(totalBytes: ProcessInfo.processInfo.physicalMemory))
+        publishIfChanged(\.metricsError, nil)
+        publishIfChanged(\.isReady, true)
+        publishIfChanged(\.chatURL, launchConnection?.url(path: "/chat"))
     }
 
     private func recordDecode(_ rate: Double?, at time: TimeInterval) {
@@ -258,7 +261,7 @@ final class ServerManager: ObservableObject {
 
     func updateModelState(models: [SushiModel]) {
         guard isRunning else { return }
-        modelState = ModelsClient.loadState(models: models, preferredID: launchedModelID)
+        publishIfChanged(\.modelState, ModelsClient.loadState(models: models, preferredID: launchedModelID))
     }
 
     var sessionIdentifier: UUID { sessionID }
@@ -270,14 +273,19 @@ final class ServerManager: ObservableObject {
         return launchConnection?.url(path: path)
     }
 
-    private func assign(_ target: inout Double?, _ value: Double?) {
-        switch (target, value) {
+    private func publishIfChanged<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<ServerManager, Value>, _ value: Value) {
+        guard self[keyPath: keyPath] != value else { return }
+        self[keyPath: keyPath] = value
+    }
+
+    private func assign(_ keyPath: ReferenceWritableKeyPath<ServerManager, Double?>, _ value: Double?, tolerance: Double = 0.05) {
+        switch (self[keyPath: keyPath], value) {
         case (nil, nil):
             return
-        case let (a?, b?) where abs(a - b) < 0.05:
+        case let (a?, b?) where abs(a - b) < tolerance:
             return
         default:
-            target = value
+            self[keyPath: keyPath] = value
         }
     }
 }

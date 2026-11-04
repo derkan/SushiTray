@@ -50,7 +50,7 @@ struct ServerStatusCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Group {
-                    if let image = StatusBarView.cachedStatusBarImage {
+                    if let image = Self.cachedStatusBarImage {
                         Image(nsImage: image).resizable().scaledToFit()
                     } else {
                         Image(systemName: "fish.fill").resizable().scaledToFit()
@@ -182,9 +182,9 @@ struct ServerStatusCard: View {
         .accessibilityValue(value)
     }
 
-    private func metric(_ value: Double?, label: String, detail: String, alignment: HorizontalAlignment, activity: String? = nil) -> some View {
+    private func metric(_ value: Double?, label: String, detail: String, alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 3) {
-            Text(activity ?? value.map { String(format: "%.0f", $0) } ?? "—")
+            Text(value.map { String(format: "%.0f", $0) } ?? "—")
                 .font(.system(size: 19, weight: .semibold, design: .rounded))
                 .monospacedDigit()
             Text(label).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
@@ -192,8 +192,30 @@ struct ServerStatusCard: View {
         }
         .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .top))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label): \(activity ?? value.map { String(format: "%.1f", $0) } ?? "unavailable") \(detail)")
+        .accessibilityLabel("\(label): \(value.map { String(format: "%.1f", $0) } ?? "unavailable") \(detail)")
     }
+    /// Decoded once — never reload PNG from disk on each SwiftUI render.
+    private static let cachedStatusBarImage: NSImage? = {
+        let candidates: [String?] = [
+            Bundle.main.path(forResource: "statusbar", ofType: "png"),
+            Bundle.main.path(forResource: "statusbar@2x", ofType: "png"),
+            Bundle.main.bundlePath
+                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png",
+            Bundle.main.bundlePath
+                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar.png",
+        ]
+        for path in candidates {
+            guard let path, let image = NSImage(contentsOfFile: path) else { continue }
+            image.isTemplate = false
+            image.size = NSSize(width: 18, height: 18)
+            return image
+        }
+        if let named = NSImage(named: "StatusBarIcon") {
+            named.isTemplate = false
+            return named
+        }
+        return nil
+    }()
 }
 
 private struct DecodeSparkline: View {

@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var selectedModelID: String?
     private var isRefreshingModels = false
     private var nextModelsRefresh = Date.distantPast
+    private var isStatusMenuOpen = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -203,6 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         if menu === statusItem.menu {
+            isStatusMenuOpen = true
             updateMainMenuLabels()
             refreshModelsAsync()
         } else if menu === modelsMenu {
@@ -211,6 +213,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if menu === agentsMenu {
             rebuildAgentsMenu()
         }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === statusItem.menu { isStatusMenuOpen = false }
     }
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
@@ -272,8 +278,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
         config.lastAgentWorkingDirectory = workingDirectory
 
-        let conn = config.connection
-        let base = URL(string: "http://\(conn.host):\(conn.port)")
+        let conn = serverManager.connection ?? config.connection
+        let base = conn.url(path: "")
             ?? URL(string: "http://127.0.0.1:12345")!
         var modelID: String?
         if let path = ServeCommandParser.modelPath(from: tokens) {
@@ -475,6 +481,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateStatusCard() {
+        guard isStatusMenuOpen else { return }
         let liveModels = modelsSource == .api ? displayedModels : []
         let model = liveModels.first { $0.loaded == true || $0.state == "ready" }
             ?? liveModels.first { $0.state == "loading" }
@@ -629,14 +636,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard self.serverManager.sessionIdentifier == sessionID,
                       self.serverManager.isRunning == running,
                       (self.serverManager.connection ?? self.config.connection) == connection else { return }
+                let changed = self.displayedModels != result.models
+                    || self.modelsSource != result.source || self.modelsError != result.errorMessage
                 self.displayedModels = result.models
                 self.modelsSource = result.source
                 self.modelsError = result.errorMessage
                 if result.source == .api {
                     self.serverManager.updateModelState(models: result.models)
-                    self.config.saveCachedModels(result.models)
+                    if result.models != cached { self.config.saveCachedModels(result.models) }
                 }
-                self.rebuildModelsMenu()
+                if changed { self.rebuildModelsMenu() }
                 self.updateStatusCard()
             }
         }

@@ -10,7 +10,6 @@ final class MetricsTests: XCTestCase {
         let metrics = try sample(#"{"gauges":{"gpu_clock_mhz":338,"gpu_utilization_pct":0,"memory_mb":36147},"counters":{"requests_success_total":2},"sessions":[{"request_id":42,"phase":"decode","generated_tokens":10}],"requests":[{"t_ms":100,"prompt_tokens":1000,"cached_tokens":800,"outcome":"ok","prefill_seconds":0.5,"generated_tokens":100,"decode_seconds":2}]}"#)
         XCTAssertEqual(metrics.sessions?.first?.requestId, 42)
         XCTAssertEqual(metrics.gauges["gpu_clock_mhz"], 338)
-        XCTAssertEqual(metrics.counters?["requests_success_total"], 2)
         XCTAssertEqual(metrics.requests?.first?.prefillSpeed, 400)
         XCTAssertEqual(metrics.requests?.first?.decodeSpeed, 50)
     }

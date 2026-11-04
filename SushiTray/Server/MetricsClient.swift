@@ -38,7 +38,6 @@ struct SushiMetrics: Decodable {
     }
 
     var gauges: [String: Double]
-    var counters: [String: UInt64]?
     var sessions: [Session]?
     var requests: [Request]?
 

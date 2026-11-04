@@ -86,10 +86,6 @@ final class AppConfig: ObservableObject {
         ServeCommandParser.connection(fromCommand: serveCommand)
     }
 
-    var sushiAvailable: Bool {
-        SushiBinary.isAvailable(command: serveCommand)
-    }
-
     func loadCachedModels() -> [SushiModel] {
         guard let data = defaults.data(forKey: cachedModelsKey) else { return [] }
         return (try? JSONDecoder().decode([SushiModel].self, from: data)) ?? []

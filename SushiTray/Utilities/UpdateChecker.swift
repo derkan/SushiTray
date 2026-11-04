@@ -406,12 +406,12 @@ enum UpdateChecker {
                 process.environment = env
                 do {
                     try process.run()
-                    process.waitUntilExit()
                 } catch {
                     cont.resume(returning: (-1, error.localizedDescription))
                     return
                 }
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 let text = String(data: data, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 cont.resume(returning: (process.terminationStatus, text))

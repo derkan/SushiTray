@@ -9,10 +9,8 @@ final class LogTailer: ObservableObject {
     private var timer: Timer?
     private var path: String?
     private var maxLines: Int
-    private var onLine: ((String) -> Void)?
     private var buffer = Data()
     private var lastSize: UInt64 = 0
-    /// Byte offset of the log file when the current serve process started.
     private var sessionStartOffset: UInt64 = 0
 
     /// Bytes to read from EOF when seeding the in-memory tail.
@@ -20,10 +18,6 @@ final class LogTailer: ObservableObject {
 
     init(maxLines: Int = 100) {
         self.maxLines = maxLines
-    }
-
-    func setOnLine(_ handler: @escaping (String) -> Void) {
-        onLine = handler
     }
 
     func start(path: String) {
@@ -34,6 +28,7 @@ final class LogTailer: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.poll()
         }
+        timer?.tolerance = 0.15
         loadTail()
     }
 
@@ -84,7 +79,7 @@ final class LogTailer: ObservableObject {
             offset = size - maxBytes
         }
         handle.seek(toFileOffset: offset)
-        var data = stripNULs(handle.readDataToEndOfFile())
+        var data = stripNULs((try? handle.read(upToCount: Int(maxBytes))) ?? Data())
         if offset > start, let nl = data.firstIndex(of: 0x0A) {
             data = data.suffix(from: data.index(after: nl))
         }
@@ -132,7 +127,7 @@ final class LogTailer: ObservableObject {
 
         let offset = size > tailReadBytes ? size - tailReadBytes : 0
         handle.seek(toFileOffset: offset)
-        var data = stripNULs(handle.readDataToEndOfFile())
+        var data = stripNULs((try? handle.read(upToCount: Int(tailReadBytes))) ?? Data())
         // If we started mid-file, drop the partial first line.
         if offset > 0, let nl = data.firstIndex(of: 0x0A) {
             data = data.suffix(from: data.index(after: nl))
@@ -178,8 +173,15 @@ final class LogTailer: ObservableObject {
         }
 
         guard let handle = fileHandle else { return }
-        handle.seek(toFileOffset: lastSize)
-        let chunk = handle.readDataToEndOfFile()
+        // Read at most the newest 64 KiB after a burst; a log spike must not grow tray RAM.
+        let offset = max(lastSize, size > tailReadBytes ? size - tailReadBytes : 0)
+        let skipped = offset > lastSize
+        if skipped { buffer.removeAll(keepingCapacity: true) }
+        handle.seek(toFileOffset: offset)
+        var chunk = (try? handle.read(upToCount: Int(tailReadBytes))) ?? Data()
+        if skipped, let newline = chunk.firstIndex(of: 0x0A) {
+            chunk = Data(chunk.suffix(from: chunk.index(after: newline)))
+        }
         guard !chunk.isEmpty else { return }
         lastSize = handle.offsetInFile
         buffer.append(stripNULs(chunk))
@@ -199,15 +201,14 @@ final class LogTailer: ObservableObject {
         if start > buffer.startIndex {
             buffer.removeSubrange(buffer.startIndex..<start)
         }
+        // Bound an unterminated line too, not just the displayed line count.
+        if buffer.count > Int(tailReadBytes) { buffer = Data(buffer.suffix(Int(tailReadBytes))) }
         guard !newLines.isEmpty else { return }
 
         DispatchQueue.main.async {
             self.lines.append(contentsOf: newLines)
             if self.lines.count > self.maxLines {
                 self.lines.removeFirst(self.lines.count - self.maxLines)
-            }
-            for line in newLines {
-                self.onLine?(line)
             }
         }
     }

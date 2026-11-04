@@ -100,28 +100,7 @@ struct StatusBarView: View {
         return serverManager.prefillTokensPerSecond == nil ? state : nil
     }
 
-    /// Decoded once — never reload PNG from disk on each SwiftUI render.
-    static let cachedStatusBarImage: NSImage? = {
-        let candidates: [String?] = [
-            Bundle.main.path(forResource: "statusbar", ofType: "png"),
-            Bundle.main.path(forResource: "statusbar@2x", ofType: "png"),
-            Bundle.main.bundlePath
-                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png",
-            Bundle.main.bundlePath
-                + "/Contents/Resources/Assets.xcassets/StatusBarIcon.imageset/statusbar.png",
-        ]
-        for path in candidates {
-            guard let path, let image = NSImage(contentsOfFile: path) else { continue }
-            image.isTemplate = false
-            image.size = NSSize(width: 18, height: 18)
-            return image
-        }
-        if let named = NSImage(named: "StatusBarIcon") {
-            named.isTemplate = false
-            return named
-        }
-        return nil
-    }()
+
 }
 
 private struct MetricBar: View {
@@ -196,7 +175,7 @@ struct PrefillProgressView: View {
 
     var body: some View {
         LEDMatrixLine(text: fraction == nil ? "P: prefill.." : "P:", color: ink,
-                      progress: fraction, pulsing: fraction == nil)
+                      progress: fraction, shimmering: fraction == nil)
             .help(progressDescription)
             .accessibilityLabel("Prefill")
             .accessibilityValue(progressDescription)
