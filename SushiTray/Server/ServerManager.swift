@@ -66,7 +66,6 @@ final class ServerManager: ObservableObject {
             modelState = nil
             launchConnection = launch.connection
             logTailer.reload(path: launch.logPath)
-            logTailer.markSessionStart()
             launchOwnedProcess(binary: launch.binary, args: launch.args)
         }
     }
