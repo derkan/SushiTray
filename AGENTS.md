@@ -27,14 +27,13 @@ macOS menu bar app that runs and controls a local `sushi serve` process.
 
 ## Menu
 
-1. Status (disabled) — running/stopped + port
+1. Live status card — model, state, click-to-copy `/v1` API URL with inline confirmation, decode/prefill, GPU clock, 5-minute decode graph, GPU/RAM bars
 2. Start / Stop Server
 3. Models ▸ — API → cache → `--model`/`--model-dir` disk
-4. System Stats ▸ — CPU / GPU / memory
-5. Serving Stats ▸ — session prefill/decode from logs
-6. Settings… (`⌘,`)
-7. About SushiTray
-8. Quit (`⌘Q`)
+4. Dashboard / Chat browser links
+5. Settings… (`⌘,`)
+6. About SushiTray
+7. Quit (`⌘Q`)
 
 ---
 
@@ -43,7 +42,15 @@ macOS menu bar app that runs and controls a local `sushi serve` process.
 - Tokenize serve command; resolve binary; inject `--log-file` (default `~/.sushi/logs/sushi.log`) and `--parent-pid` if missing.
 - Spawn via `Process` argv (not shell).
 - Stop: SIGTERM then SIGKILL after ~3s.
-- Prefill/decode from log lines matching `prefill: … tok/s` / `decode: … tok/s`.
+- Requires Sushi 1.5.0+: poll authenticated `/metrics.json?since=…` for readiness, live decode deltas, cached-token-adjusted prefill, GPU clock and server memory.
+- While loading, center the static `SUSHITRAY` label on the second matrix row.
+- Model state comes from fresh `/v1/models` responses for the launched model: centered amber animated `LOADING`, green `READY` before rates exist, red `ERROR` (no `S:` prefix); preserve active and last prefill display. Poll every second while loading. Use two fixed 12-character Menlo Regular 8.5 pt rows, with cell widths measured from the font and a dim dot grid for status/rate/progress so the tray does not resize between states.
+- Prefill progress uses `prefill_tokens_live / prefill_tokens_expected` for the uncached prompt tail; known targets light the shared LED matrix cells; unknown targets show shimmering `P: prefill..` text matching model loading, respecting Reduce Motion.
+- CTX tray bar uses `context_tokens / context_length` for exactly one active prefill/decode session; ignore cached sessions. Keep its slot reserved and dimmed when unavailable to avoid resizing.
+- The menu card and MEM bar use the server’s `memory_mb` footprint against physical RAM, matching Dashboard.
+- Publish metrics only when values change; keep graph history non-published and update the dropdown only while visible. Cache LED grid geometry and avoid rewriting unchanged model cache/menu data.
+- Logs are for diagnostics only; no legacy log metric fallback. Server links use `/` and `/chat`.
+- Manage only the child process launched by SushiTray; do not adopt or signal sushibar-owned servers.
 
 ---
 
