@@ -1,6 +1,25 @@
 import Foundation
 
 enum ModelsClient {
+    enum LoadState: String {
+        case loading, ready, error, unloaded
+    }
+
+    static func loadState(models: [SushiModel], preferredID: String?) -> LoadState {
+        if let preferredID, let selected = models.first(where: { $0.id == preferredID }) {
+            return state(of: selected)
+        }
+        if models.contains(where: { $0.state == "loading" }) { return .loading }
+        if models.contains(where: { $0.state == "ready" || $0.loaded == true }) { return .ready }
+        if models.contains(where: { $0.state == "error" }) { return .error }
+        return .unloaded
+    }
+
+    private static func state(of model: SushiModel) -> LoadState {
+        if let state = model.state, let known = LoadState(rawValue: state) { return known }
+        return model.loaded == true ? .ready : .unloaded
+    }
+
     enum Source: Equatable {
         case api
         case cache
@@ -19,6 +38,8 @@ enum ModelsClient {
             var loaded: Bool?
             var state: String?
             var bytes_on_disk: UInt64?
+            struct Meta: Decodable { var pack_update: SushiModel.PackUpdate? }
+            var meta: Meta?
         }
 
         var data: [Item]
@@ -60,9 +81,8 @@ enum ModelsClient {
         return Result(models: disk, source: .disk, errorMessage: nil)
     }
 
-    static func fetchAPI(connection: ServeCommandParser.Connection) async throws -> [SushiModel] {
-        let urlString = "http://\(connection.host):\(connection.port)/v1/models"
-        guard let url = URL(string: urlString) else {
+    static func fetchAPI(connection: ServeCommandParser.Connection, session: URLSession = .shared) async throws -> [SushiModel] {
+        guard let url = connection.url(path: "/v1/models") else {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url, timeoutInterval: 3)
@@ -71,7 +91,7 @@ enum ModelsClient {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
@@ -81,7 +101,8 @@ enum ModelsClient {
                 id: $0.id,
                 loaded: $0.loaded,
                 state: $0.state,
-                bytesOnDisk: $0.bytes_on_disk
+                bytesOnDisk: $0.bytes_on_disk,
+                packUpdate: $0.meta?.pack_update
             )
         }
     }

@@ -4,6 +4,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var statusBarHosting: NSHostingView<StatusBarView>!
+    private var statusCardHosting: NSHostingView<ServerStatusCard>?
     private var settingsWindow: NSWindow?
 
     private let serverManager = ServerManager.shared
@@ -11,24 +12,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var modelsMenu = NSMenu(title: "Models")
     private var agentsMenu = NSMenu(title: "Agents")
-    private var systemStatsMenu = NSMenu(title: "System Stats")
-    private var servingStatsMenu = NSMenu(title: "Serving Stats")
 
-    private var statusMenuItem: NSMenuItem!
     private var startStopMenuItem: NSMenuItem!
     private var openChatMenuItem: NSMenuItem!
+    private var serverPageItems: [NSMenuItem] = []
     private var modelsMenuItem: NSMenuItem!
     private var agentsMenuItem: NSMenuItem!
     private var displayedModels: [SushiModel] = []
     private var modelsSource: ModelsClient.Source = .disk
     private var modelsError: String?
     private var selectedModelID: String?
+    private var isRefreshingModels = false
+    private var nextModelsRefresh = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
         setupStatusBar()
         serverManager.onTick = { [weak self] in
-            self?.updateMainMenuLabels()
+            guard let self else { return }
+            self.updateMainMenuLabels()
+            if self.serverManager.isRunning, Date() >= self.nextModelsRefresh {
+                self.refreshModelsAsync()
+            }
         }
         serverManager.prepareLogTail(command: config.serveCommand)
         serverManager.startTicking()
@@ -101,13 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
 
-        statusMenuItem = NSMenuItem(
-            title: "Server: stopped",
-            action: nil,
-            keyEquivalent: ""
-        )
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
+        let card = NSHostingView(rootView: ServerStatusCard(snapshot: .init()))
+        card.frame = NSRect(x: 0, y: 0, width: ServerStatusCard.width, height: ServerStatusCard.height)
+        let cardItem = NSMenuItem()
+        cardItem.view = card
+        menu.addItem(cardItem)
+        menu.addItem(.separator())
+        statusCardHosting = card
 
         startStopMenuItem = NSMenuItem(
             title: "Start Server",
@@ -118,13 +123,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(startStopMenuItem)
 
         openChatMenuItem = NSMenuItem(
-            title: "Open chat",
+            title: "Chat",
             action: #selector(openChat),
             keyEquivalent: ""
         )
         openChatMenuItem.target = self
+        openChatMenuItem.view = ExternalLinkMenuItemView(item: openChatMenuItem)
         openChatMenuItem.isHidden = true
         menu.addItem(openChatMenuItem)
+
+        let dashboardItem = NSMenuItem(title: "Dashboard", action: #selector(openServerPage(_:)), keyEquivalent: "")
+        dashboardItem.target = self
+        dashboardItem.view = ExternalLinkMenuItemView(item: dashboardItem)
+        dashboardItem.representedObject = "/"
+        dashboardItem.isEnabled = false
+        serverPageItems.append(dashboardItem)
+        menu.addItem(dashboardItem)
 
         modelsMenuItem = NSMenuItem(title: "Models", action: nil, keyEquivalent: "")
         modelsMenu.delegate = self
@@ -135,16 +149,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         agentsMenu.delegate = self
         agentsMenuItem.submenu = agentsMenu
         menu.addItem(agentsMenuItem)
-
-        let systemItem = NSMenuItem(title: "System Stats", action: nil, keyEquivalent: "")
-        systemStatsMenu.delegate = self
-        systemItem.submenu = systemStatsMenu
-        menu.addItem(systemItem)
-
-        let servingItem = NSMenuItem(title: "Serving Stats", action: nil, keyEquivalent: "")
-        servingStatsMenu.delegate = self
-        servingItem.submenu = servingStatsMenu
-        menu.addItem(servingItem)
 
         menu.addItem(.separator())
 
@@ -206,10 +210,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             refreshModelsAsync()
         } else if menu === agentsMenu {
             rebuildAgentsMenu()
-        } else if menu === systemStatsMenu {
-            rebuildSystemStatsMenu()
-        } else if menu === servingStatsMenu {
-            rebuildServingStatsMenu()
+        }
+    }
+
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        for entry in menu.items where entry.view is ExternalLinkMenuItemView {
+            entry.view?.needsDisplay = true
         }
     }
 
@@ -233,6 +239,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openChat() {
         guard let url = serverManager.chatURL else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    @objc private func openServerPage(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String,
+              let url = serverManager.pageURL(path: path) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func copyPackUpdate(_ sender: NSMenuItem) {
+        guard let command = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
     }
 
     @objc private func launchAgent(_ sender: NSMenuItem) {
@@ -443,53 +461,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Menu builders
 
     private func updateMainMenuLabels() {
-        if serverManager.isReady {
-            statusMenuItem.title = "Server: running (port \(serverManager.port))"
-            let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor.systemGreen,
-                .font: NSFont.menuFont(ofSize: 0),
-            ]
-            statusMenuItem.attributedTitle = NSAttributedString(
-                string: statusMenuItem.title,
-                attributes: attrs
-            )
-            startStopMenuItem.title = "Stop Server"
-            let hasChat = serverManager.chatURL != nil
-            openChatMenuItem.isHidden = !hasChat
-            openChatMenuItem.isEnabled = hasChat
-            if let url = serverManager.chatURL {
-                openChatMenuItem.toolTip = url.absoluteString
-            } else {
-                openChatMenuItem.toolTip = nil
-            }
-        } else if serverManager.isRunning {
-            statusMenuItem.title = "Server: starting…"
-            let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor.systemOrange,
-                .font: NSFont.menuFont(ofSize: 0),
-            ]
-            statusMenuItem.attributedTitle = NSAttributedString(
-                string: statusMenuItem.title,
-                attributes: attrs
-            )
-            startStopMenuItem.title = "Stop Server"
-            openChatMenuItem.isHidden = true
-            openChatMenuItem.isEnabled = false
-            openChatMenuItem.toolTip = nil
-        } else {
-            statusMenuItem.attributedTitle = nil
-            statusMenuItem.title = "Server: stopped"
-            startStopMenuItem.title = "Start Server"
-            openChatMenuItem.isHidden = true
-            openChatMenuItem.isEnabled = false
-            openChatMenuItem.toolTip = nil
+        updateStatusCard()
+        for item in serverPageItems {
+            item.isEnabled = serverManager.isReady
+            (item.view as? NSButton)?.isEnabled = item.isEnabled
         }
-        if let err = serverManager.errorMessage, !serverManager.isRunning {
-            statusMenuItem.title = "Server: error"
-            statusMenuItem.toolTip = err
-        } else if !serverManager.isRunning {
-            statusMenuItem.toolTip = nil
-        }
+        startStopMenuItem.title = serverManager.isRunning ? "Stop Server" : "Start Server"
+        startStopMenuItem.toolTip = serverManager.errorMessage ?? serverManager.metricsError
+        openChatMenuItem.isHidden = !serverManager.isReady
+        openChatMenuItem.isEnabled = serverManager.isReady
+        (openChatMenuItem.view as? NSButton)?.isEnabled = openChatMenuItem.isEnabled
+        openChatMenuItem.toolTip = serverManager.chatURL?.absoluteString
+    }
+
+    private func updateStatusCard() {
+        let liveModels = modelsSource == .api ? displayedModels : []
+        let model = liveModels.first { $0.loaded == true || $0.state == "ready" }
+            ?? liveModels.first { $0.state == "loading" }
+        let selected = ServeCommandParser.modelPath(from: CommandTokenizer.tokenize(config.serveCommand))
+            .map { ($0 as NSString).lastPathComponent }
+        var snapshot = ServerStatusCard.Snapshot()
+        snapshot.running = serverManager.isRunning
+        snapshot.ready = serverManager.isReady
+        snapshot.modelState = serverManager.errorMessage == nil ? serverManager.modelState : .error
+        snapshot.prefilling = serverManager.isPrefilling
+        snapshot.prefillProgress = serverManager.prefillProgress
+        snapshot.decoding = serverManager.isDecoding
+        snapshot.metricsError = serverManager.errorMessage ?? serverManager.metricsError
+        snapshot.model = model.map { $0.id + ($0.state == "loading" ? " · Loading" : "") }
+            ?? (serverManager.isReady ? "No model loaded" : selected ?? "Loading server…")
+        snapshot.apiURL = (serverManager.connection ?? config.connection).url(path: "/v1")
+        snapshot.memoryMB = serverManager.serverMemoryMB
+        snapshot.decode = serverManager.genTokensPerSecond
+        snapshot.prefill = serverManager.prefillTokensPerSecond
+        snapshot.gpuMHz = serverManager.gpuClockMHz
+        snapshot.gpuPercent = serverManager.gpuUtilization.map { $0 * 100 }
+        snapshot.history = serverManager.isRunning ? serverManager.decodeHistory : []
+        statusCardHosting?.rootView = ServerStatusCard(snapshot: snapshot)
     }
 
     private func rebuildModelsMenu() {
@@ -540,6 +548,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 item.state = .on
             }
             modelsMenu.addItem(item)
+            if let update = model.packUpdate, !update.latest.isEmpty, !update.command.isEmpty {
+                let copy = NSMenuItem(
+                    title: "Pack \(update.latest) available — copy update command",
+                    action: #selector(copyPackUpdate(_:)), keyEquivalent: ""
+                )
+                copy.target = self
+                copy.representedObject = update.command
+                copy.toolTip = "Installed: \(update.current). \(update.command)"
+                copy.indentationLevel = 1
+                modelsMenu.addItem(copy)
+            }
         }
     }
 
@@ -585,80 +604,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func rebuildSystemStatsMenu() {
-        systemStatsMenu.removeAllItems()
-        let mem = MemoryMetricsSampler.sample()
-        let gpu = GPUMetricsSampler.sample()
-
-        func add(_ title: String) {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            systemStatsMenu.addItem(item)
-        }
-
-        if let cpu = mem.cpuFraction {
-            add(String(format: "CPU  %.0f%%", cpu * 100))
-        } else {
-            add("CPU  —")
-        }
-
-        if let gpu {
-            add(String(format: "GPU  %.0f%%", gpu.utilization * 100))
-            add(
-                String(
-                    format: "GPU memory  %@",
-                    byteString(gpu.memoryUsedBytes)
-                )
-            )
-        } else {
-            add("GPU  —")
-            add("GPU memory  —")
-        }
-
-        add(
-            String(
-                format: "Memory  %@ / %@  (%.0f%%)",
-                byteString(mem.usedBytes),
-                byteString(mem.totalBytes),
-                mem.usedFraction * 100
-            )
-        )
-    }
-
-    private func rebuildServingStatsMenu() {
-        servingStatsMenu.removeAllItems()
-
-        func add(_ title: String) {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            servingStatsMenu.addItem(item)
-        }
-
-        let header = NSMenuItem(title: "Session", action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        servingStatsMenu.addItem(header)
-
-        add("Requests: \(serverManager.sessionRequests)")
-        add("Prompt tokens: \(formatCount(serverManager.sessionPromptTokens))")
-        add("Generated tokens: \(formatCount(serverManager.sessionGeneratedTokens))")
-
-        if let p = serverManager.sessionPrefill ?? serverManager.prefillTokensPerSecond {
-            add(String(format: "Prefill: %.1f tok/s", p))
-        } else {
-            add("Prefill: —")
-        }
-        if let d = serverManager.sessionDecode ?? serverManager.genTokensPerSecond {
-            add(String(format: "Decode: %.1f tok/s", d))
-        } else {
-            add("Decode: —")
-        }
-    }
-
     // MARK: - Models refresh
 
     private func refreshModelsAsync() {
+        guard !isRefreshingModels else { return }
+        isRefreshingModels = true
+        let modelPending = serverManager.isRunning && (serverManager.modelState == nil || serverManager.modelState == .loading)
+        nextModelsRefresh = Date().addingTimeInterval(modelPending ? 1 : 5)
         let running = serverManager.isRunning
-        let connection = config.connection
+        let sessionID = serverManager.sessionIdentifier
+        let connection = serverManager.connection ?? config.connection
         let command = config.serveCommand
         let cached = config.loadCachedModels()
 
@@ -670,13 +625,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 cached: cached
             )
             await MainActor.run {
+                self.isRefreshingModels = false
+                guard self.serverManager.sessionIdentifier == sessionID,
+                      self.serverManager.isRunning == running,
+                      (self.serverManager.connection ?? self.config.connection) == connection else { return }
                 self.displayedModels = result.models
                 self.modelsSource = result.source
                 self.modelsError = result.errorMessage
                 if result.source == .api {
+                    self.serverManager.updateModelState(models: result.models)
                     self.config.saveCachedModels(result.models)
                 }
                 self.rebuildModelsMenu()
+                self.updateStatusCard()
             }
         }
     }
@@ -688,27 +649,4 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: - Formatting
-
-    private func byteString(_ bytes: UInt64) -> String {
-        let gb = Double(bytes) / 1_073_741_824
-        if gb >= 10 {
-            return String(format: "%.0f GB", gb)
-        }
-        if gb >= 1 {
-            return String(format: "%.1f GB", gb)
-        }
-        let mb = Double(bytes) / 1_048_576
-        return String(format: "%.0f MB", mb)
-    }
-
-    private func formatCount(_ n: Int) -> String {
-        if n >= 1_000_000 {
-            return String(format: "%.1fM", Double(n) / 1_000_000)
-        }
-        if n >= 1_000 {
-            return String(format: "%.1fK", Double(n) / 1_000)
-        }
-        return "\(n)"
-    }
 }

@@ -2,10 +2,19 @@ import Foundation
 
 /// Parses flags from a tokenized sushi serve command.
 enum ServeCommandParser {
-    struct Connection {
+    struct Connection: Equatable {
         var host: String
         var port: Int
         var apiKey: String?
+
+        func url(path: String) -> URL? {
+            var components = URLComponents()
+            components.scheme = "http"
+            components.host = host
+            components.port = port
+            components.path = path
+            return components.url
+        }
     }
 
     struct LaunchError: Error, LocalizedError {

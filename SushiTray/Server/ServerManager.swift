@@ -6,58 +6,52 @@ final class ServerManager: ObservableObject {
     static let shared = ServerManager()
 
     @Published private(set) var isRunning = false
-    /// True after log shows `Server listening on http://…`.
+    /// True while the Sushi 1.5 metrics endpoint answers.
     @Published private(set) var isReady = false
+    @Published private(set) var modelState: ModelsClient.LoadState?
+    @Published private(set) var isPrefilling = false
+    @Published private(set) var prefillProgress: Double?
+    @Published private(set) var isDecoding = false
     @Published private(set) var prefillTokensPerSecond: Double?
     @Published private(set) var genTokensPerSecond: Double?
+    @Published private(set) var contextUsage: SushiMetrics.ContextUsage?
+    @Published private(set) var activeSessionCount = 0
     @Published private(set) var gpuUtilization: Double?
-    @Published private(set) var gpuMemoryFraction: Double?
-    @Published private(set) var gpuMemoryUsedBytes: UInt64?
+    @Published private(set) var serverMemoryFraction: Double?
     @Published private(set) var errorMessage: String?
     @Published private(set) var port: Int = ServeCommandParser.defaultPort
     @Published private(set) var host: String = ServeCommandParser.defaultHost
-    /// From log line `chat in your browser: http://…` while server is running.
     @Published private(set) var chatURL: URL?
 
-    // Session serving stats
-    @Published private(set) var sessionPrefill: Double?
-    @Published private(set) var sessionDecode: Double?
-    @Published private(set) var sessionPromptTokens: Int = 0
-    @Published private(set) var sessionGeneratedTokens: Int = 0
-    @Published private(set) var sessionRequests: Int = 0
+    @Published private(set) var decodeHistory: [DecodePoint] = []
+    @Published private(set) var metricsError: String?
+    @Published private(set) var gpuClockMHz: Double?
+    @Published private(set) var serverMemoryMB: Double?
 
     /// Fired on the main run-loop tick (for menu label refresh).
     var onTick: (() -> Void)?
 
     let logTailer = LogTailer(maxLines: 100)
-    private let logParser = SushiLogParser()
     private var process: Process?
     private var intentionalStop = false
-    private var prefillWindow = RollingMetric(window: 3)
-    private var genWindow = RollingMetric(window: 3)
+    private var metricsTracker = MetricsTracker()
+    private var metricsTask: Task<Void, Never>?
+    private var launchConnection: ServeCommandParser.Connection?
+    private var sessionID = UUID()
+    private var launchedModelID: String?
     private var tickTimer: Timer?
-    private var currentLogPath: String?
-    private var gpuTickCounter = 0
-    private var didScanChatURLForSession = false
 
-    private init() {
-        logTailer.setOnLine { [weak self] line in
-            self?.ingestLogLine(line)
-        }
-    }
+    private init() {}
 
     func prepareLogTail(command: String) {
         let path = ServeCommandParser.logFilePath(fromCommand: command)
-        currentLogPath = path
         logTailer.start(path: path)
-        scanLogsForChatURLOnce()
     }
 
     func start(command: String) {
         guard !isRunning else { return }
         intentionalStop = false
         errorMessage = nil
-        didScanChatURLForSession = false
         chatURL = nil
 
         let result = ServeCommandParser.buildLaunchArguments(
@@ -69,13 +63,15 @@ final class ServerManager: ObservableObject {
             errorMessage = error.message
             return
         case .success(let launch):
+            launchedModelID = ServeCommandParser.modelPath(from: CommandTokenizer.tokenize(command))
+                .map { ($0 as NSString).lastPathComponent }
+            modelState = nil
+            launchConnection = launch.connection
             host = launch.connection.host
             port = launch.connection.port
-            currentLogPath = launch.logPath
             logTailer.reload(path: launch.logPath)
             logTailer.markSessionStart()
             launchOwnedProcess(binary: launch.binary, args: launch.args)
-            scanLogsForChatURLOnce()
         }
     }
 
@@ -121,14 +117,18 @@ final class ServerManager: ObservableObject {
 
     func startTicking() {
         tickTimer?.invalidate()
-        tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        tickTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.tick()
         }
+        if let tickTimer { RunLoop.main.add(tickTimer, forMode: .common) }
+        tick()
     }
 
     func stopTicking() {
         tickTimer?.invalidate()
         tickTimer = nil
+        metricsTask?.cancel()
+        metricsTask = nil
     }
 
     // MARK: - Private
@@ -144,7 +144,7 @@ final class ServerManager: ObservableObject {
         process.terminationHandler = { [weak self] proc in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if self.process == nil || self.process === proc {
+                if self.process === proc {
                     self.process = nil
                     if !self.intentionalStop {
                         self.errorMessage =
@@ -160,7 +160,8 @@ final class ServerManager: ObservableObject {
             self.process = process
             isRunning = true
             isReady = false
-            resetSessionStats()
+            decodeHistory = []
+            pollMetrics()
         } catch {
             errorMessage = "Failed to start: \(error.localizedDescription)"
             markStopped()
@@ -170,80 +171,103 @@ final class ServerManager: ObservableObject {
     private func markStopped() {
         isRunning = false
         isReady = false
+        isPrefilling = false
+        prefillProgress = nil
+        isDecoding = false
         if chatURL != nil { chatURL = nil }
-        didScanChatURLForSession = false
         assign(&prefillTokensPerSecond, nil)
         assign(&genTokensPerSecond, nil)
         assign(&gpuUtilization, nil)
-        assign(&gpuMemoryFraction, nil)
-        if gpuMemoryUsedBytes != nil { gpuMemoryUsedBytes = nil }
-        prefillWindow.reset()
-        genWindow.reset()
-        gpuTickCounter = 0
-    }
-
-    private func resetSessionStats() {
-        sessionPrefill = nil
-        sessionDecode = nil
-        sessionPromptTokens = 0
-        sessionGeneratedTokens = 0
-        sessionRequests = 0
+        serverMemoryFraction = nil
+        contextUsage = nil
+        activeSessionCount = 0
+        sessionID = UUID()
+        modelState = nil
+        launchedModelID = nil
+        metricsTask?.cancel()
+        metricsTask = nil
+        metricsTracker = MetricsTracker()
+        launchConnection = nil
+        metricsError = nil
+        gpuClockMHz = nil
+        serverMemoryMB = nil
     }
 
     private func tick() {
-        publishSpeedWindows()
-        // GPU sample every 2s — IORegistry is the hot cost.
-        gpuTickCounter += 1
-        if isRunning, gpuTickCounter % 2 == 0 {
-            if let gpu = GPUMetricsSampler.sample() {
-                assign(&gpuUtilization, gpu.utilization)
-                assign(&gpuMemoryFraction, gpu.memoryFraction)
-                if gpuMemoryUsedBytes != gpu.memoryUsedBytes {
-                    gpuMemoryUsedBytes = gpu.memoryUsedBytes
-                }
-            }
-        } else if !isRunning {
-            assign(&gpuUtilization, nil)
-            assign(&gpuMemoryFraction, nil)
-            if gpuMemoryUsedBytes != nil { gpuMemoryUsedBytes = nil }
-        }
+        pollMetrics()
         onTick?()
     }
 
-    private func ingestLogLine(_ line: String) {
-        if isRunning, !isReady, logParser.isServerListening(line) {
-            isReady = true
-        }
-        if chatURL == nil, let url = logParser.parseChatURL(line) {
-            chatURL = url
-            didScanChatURLForSession = true
-        }
-        guard let sample = logParser.parse(line) else { return }
-        prefillWindow.record(sample.prefill)
-        genWindow.record(sample.decode)
-        sessionPrefill = sample.prefill
-        sessionDecode = sample.decode
-        sessionRequests += 1
-        if let p = sample.promptTokens { sessionPromptTokens += p }
-        if let g = sample.generatedTokens { sessionGeneratedTokens += g }
-        publishSpeedWindows()
-    }
-
-    /// One-shot scan of the current in-memory tail. New lines go through `ingestLogLine`.
-    func scanLogsForChatURLOnce() {
-        guard !didScanChatURLForSession, chatURL == nil else { return }
-        didScanChatURLForSession = true
-        for line in logTailer.lines.reversed() {
-            if let url = logParser.parseChatURL(line) {
-                chatURL = url
-                return
+    private func pollMetrics() {
+        guard isRunning, metricsTask == nil, let connection = launchConnection else { return }
+        let id = sessionID
+        let since = metricsTracker.sinceMilliseconds
+        let started = Date().timeIntervalSince1970
+        metricsTask = Task { @MainActor [weak self] in
+            do {
+                let sample = try await MetricsClient.fetch(connection: connection, since: since)
+                guard let self, !Task.isCancelled, self.sessionID == id, self.isRunning else { return }
+                self.metricsTask = nil
+                let live = self.metricsTracker.observe(sample, at: started)
+                self.activeSessionCount = sample.activeSessions.count
+                self.contextUsage = sample.singleSessionContext
+                self.isPrefilling = sample.isPrefilling
+                self.prefillProgress = sample.prefillProgress
+                self.isDecoding = sample.isDecoding
+                let active = sample.isPrefilling || sample.isDecoding
+                self.assign(&self.genTokensPerSecond, active ? live : self.metricsTracker.lastDecode)
+                self.assign(&self.prefillTokensPerSecond, self.metricsTracker.lastPrefill)
+                self.recordDecode(live ?? (active ? nil : 0), at: started)
+                self.assign(&self.gpuUtilization, sample.gauges["gpu_utilization_pct"].map { min(1, max(0, $0 / 100)) })
+                self.assign(&self.gpuClockMHz, sample.gauges["gpu_clock_mhz"].flatMap { $0 > 0 ? $0 : nil })
+                self.assign(&self.serverMemoryMB, sample.memoryMB)
+                self.serverMemoryFraction = sample.memoryFraction(totalBytes: ProcessInfo.processInfo.physicalMemory)
+                self.metricsError = nil
+                self.isReady = true
+                self.chatURL = connection.url(path: "/chat")
+                self.onTick?()
+            } catch {
+                guard let self, !Task.isCancelled, self.sessionID == id else { return }
+                self.metricsTask = nil
+                self.metricsTracker.interrupt()
+                self.recordDecode(nil, at: started)
+                self.metricsError = error.localizedDescription
+                self.isReady = false
+                self.contextUsage = nil
+                self.activeSessionCount = 0
+                self.isPrefilling = false
+                self.prefillProgress = nil
+                self.isDecoding = false
+                self.chatURL = nil
+                self.assign(&self.genTokensPerSecond, nil)
+                self.assign(&self.prefillTokensPerSecond, self.metricsTracker.lastPrefill)
+                self.assign(&self.gpuUtilization, nil)
+                self.gpuClockMHz = nil
+                self.serverMemoryMB = nil
+                self.serverMemoryFraction = nil
+                self.onTick?()
             }
         }
     }
 
-    private func publishSpeedWindows() {
-        assign(&prefillTokensPerSecond, prefillWindow.stickyLatest())
-        assign(&genTokensPerSecond, genWindow.stickyLatest())
+    private func recordDecode(_ rate: Double?, at time: TimeInterval) {
+        decodeHistory.removeAll { $0.time < time - 300 }
+        decodeHistory.append(DecodePoint(time: time, tokensPerSecond: rate))
+        if decodeHistory.count > 301 { decodeHistory.removeFirst(decodeHistory.count - 301) }
+    }
+
+    func updateModelState(models: [SushiModel]) {
+        guard isRunning else { return }
+        modelState = ModelsClient.loadState(models: models, preferredID: launchedModelID)
+    }
+
+    var sessionIdentifier: UUID { sessionID }
+
+    var connection: ServeCommandParser.Connection? { launchConnection }
+
+    func pageURL(path: String) -> URL? {
+        guard isReady else { return nil }
+        return launchConnection?.url(path: path)
     }
 
     private func assign(_ target: inout Double?, _ value: Double?) {

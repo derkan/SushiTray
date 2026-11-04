@@ -15,10 +15,8 @@ let package = Package(
                 "Assets.xcassets",
                 "Info.plist",
                 "AppIcon.icns",
-            ],
-            linkerSettings: [
-                .linkedFramework("IOKit"),
             ]
         ),
+        .testTarget(name: "SushiTrayTests", dependencies: ["SushiTray"]),
     ]
 )

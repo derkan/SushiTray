@@ -10,7 +10,7 @@ final class AppConfig: ObservableObject {
     sushi serve --model ~/.sushi/models/Qwen3.8-Flash-Next-Sushi-2bpw \
       --mtp --kv-quant 8 --mtp-head-kv-quant --qwen-gdn 16 --ctx-size 131072 \
       --max-tokens 32000 --prefix-cache-disk 20GB --prefix-cache-entries 1 \
-      --prefix-cache-mem 1GB --temp 1 --skip-mem-preflight
+      --prefix-cache-mem 1GB --temp 1
     """
 
     private let defaults = UserDefaults.standard
@@ -114,13 +114,21 @@ struct SushiModel: Codable, Identifiable, Equatable, Hashable {
     var loaded: Bool?
     var state: String?
     var bytesOnDisk: UInt64?
+    var packUpdate: PackUpdate?
+
+    struct PackUpdate: Codable, Equatable, Hashable {
+        var current: String
+        var latest: String
+        var command: String
+    }
 
     var displayName: String { id }
 
-    init(id: String, loaded: Bool? = nil, state: String? = nil, bytesOnDisk: UInt64? = nil) {
+    init(id: String, loaded: Bool? = nil, state: String? = nil, bytesOnDisk: UInt64? = nil, packUpdate: PackUpdate? = nil) {
         self.id = id
         self.loaded = loaded
         self.state = state
         self.bytesOnDisk = bytesOnDisk
+        self.packUpdate = packUpdate
     }
 }
