@@ -4,16 +4,24 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   release:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Test
         run: make test
@@ -23,12 +31,15 @@ jobs:
 
       - name: Read version and checksum
         id: meta
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist)
-          test "$GITHUB_REF_NAME" = "v${VERSION}"
+          test "$RELEASE_TAG" = "v${VERSION}"
           ZIP="dist/SushiTray-${VERSION}.zip"
           SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
@@ -66,6 +77,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
           name: SushiTray ${{ steps.meta.outputs.version }}
           files: ${{ steps.meta.outputs.zip }}
           fail_on_unmatched_files: true
