@@ -117,6 +117,28 @@ final class MetricsTests: XCTestCase {
         XCTAssertEqual(tracker.lastPrefill, 400)
     }
 
+    func testPrefillKeepsLastDisplayedDecodeRateUntilDecodingResumes() throws {
+        let manager = ServerManager()
+        let prefill = try sample(#"{"gauges":{"requests_prefilling":1},"sessions":[],"requests":[]}"#)
+        manager.applyMetrics(prefill, at: 1)
+        XCTAssertNil(manager.genTokensPerSecond)
+
+        let first = try sample(#"{"gauges":{},"sessions":[{"request_id":1,"phase":"decode","generated_tokens":10}]}"#)
+        let second = try sample(#"{"gauges":{},"sessions":[{"request_id":1,"phase":"decode","generated_tokens":40}]}"#)
+        manager.applyMetrics(first, at: 2)
+        manager.applyMetrics(second, at: 3)
+        XCTAssertEqual(manager.genTokensPerSecond, 30)
+        manager.applyMetrics(prefill, at: 4)
+        manager.applyMetrics(prefill, at: 5)
+        XCTAssertEqual(manager.genTokensPerSecond, 30)
+        XCTAssertEqual(manager.decodeHistory.last?.tokensPerSecond, 0)
+
+        manager.applyMetrics(first, at: 6)
+        manager.applyMetrics(second, at: 8)
+        XCTAssertEqual(manager.genTokensPerSecond, 15)
+        XCTAssertEqual(manager.decodeHistory.compactMap(\.tokensPerSecond), [0, 0, 30, 0, 0, 0, 15])
+    }
+
     func testCachedModelsRemainDecodableAndPackUpdatesPersist() throws {
         let cached = try JSONDecoder().decode([SushiModel].self, from: Data(#"[{"id":"old-cache"}]"#.utf8))
         XCTAssertNil(cached.first?.packUpdate)

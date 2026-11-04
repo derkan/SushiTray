@@ -239,10 +239,15 @@ final class ServerManager: ObservableObject {
         publishIfChanged(\.isPrefilling, sample.isPrefilling)
         publishIfChanged(\.prefillProgress, sample.prefillProgress)
         publishIfChanged(\.isDecoding, sample.isDecoding)
-        let active = sample.isPrefilling || sample.isDecoding
-        assign(\.genTokensPerSecond, active ? live : metricsTracker.lastDecode)
+        // Prefill has no decode sample; keep the last displayed speed until decoding resumes.
+        if sample.isDecoding {
+            assign(\.genTokensPerSecond, live)
+        } else if !sample.isPrefilling {
+            assign(\.genTokensPerSecond, metricsTracker.lastDecode)
+        }
         assign(\.prefillTokensPerSecond, metricsTracker.lastPrefill)
-        recordDecode(live ?? (active ? nil : 0), at: started)
+        // A successful poll without a decode delta is zero throughput, not an outage.
+        recordDecode(live ?? 0, at: started)
         assign(\.gpuUtilization, sample.gauges["gpu_utilization_pct"].map { min(1, max(0, $0 / 100)) }, tolerance: 0.005)
         assign(\.gpuClockMHz, sample.gauges["gpu_clock_mhz"].flatMap { $0 > 0 ? $0 : nil })
         assign(\.serverMemoryMB, sample.memoryMB)
