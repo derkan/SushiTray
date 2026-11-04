@@ -30,13 +30,14 @@ struct LEDMatrixLine: NSViewRepresentable {
     let color: Color
     var progress: Double? = nil
     var shimmering = false
+    var centered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> DisplayView { DisplayView(frame: .init(x: 0, y: 0, width: Self.width, height: Self.height)) }
 
     func updateNSView(_ view: DisplayView, context: Context) {
         view.update(text: text, color: NSColor(color), progress: progress,
-                    shimmering: shimmering && !reduceMotion)
+                    shimmering: shimmering && !reduceMotion, centered: centered)
     }
 
     static func dismantleNSView(_ view: DisplayView, coordinator: ()) { view.stopAnimations() }
@@ -54,6 +55,7 @@ struct LEDMatrixLine: NSViewRepresentable {
         private var currentProgress: Double?
         private var currentScale: CGFloat = 0
         private var shimmering = false
+        private var centered = false
         private static var grids: [CGFloat: CGImage] = [:]
 
         override init(frame frameRect: NSRect) {
@@ -65,7 +67,7 @@ struct LEDMatrixLine: NSViewRepresentable {
                 item.contentsGravity = .resize
                 layer?.addSublayer(item)
             }
-            gridLayer.opacity = 0.085
+            gridLayer.opacity = TrayPalette.trackOpacity
             progressLayer.mask = progressMask
             progressMask.backgroundColor = NSColor.white.cgColor
             shineLayer.mask = shineMask
@@ -85,16 +87,17 @@ struct LEDMatrixLine: NSViewRepresentable {
         override func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
             if let currentColor {
-                update(text: currentText, color: currentColor, progress: currentProgress, shimmering: shimmering)
+                update(text: currentText, color: currentColor, progress: currentProgress, shimmering: shimmering, centered: centered)
             }
         }
 
         override var intrinsicContentSize: NSSize { NSSize(width: LEDMatrixLine.width, height: LEDMatrixLine.height) }
 
-        func update(text: String, color: NSColor, progress: Double?, shimmering: Bool) {
+        func update(text: String, color: NSColor, progress: Double?, shimmering: Bool, centered: Bool = false) {
             let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-            let changed = text != currentText || currentColor?.isEqual(color) != true || scale != currentScale || self.shimmering != shimmering
+            let changed = text != currentText || currentColor?.isEqual(color) != true || scale != currentScale || self.shimmering != shimmering || self.centered != centered
             self.shimmering = shimmering
+            self.centered = centered
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             if changed {
@@ -158,13 +161,13 @@ struct LEDMatrixLine: NSViewRepresentable {
 
         private func textBitmap(_ text: String, color: NSColor, scale: CGFloat, valueOnly: Bool = false) -> CGImage? {
             bitmap(scale: scale) { context in
-                if valueOnly {
+                if valueOnly && !centered {
                     context.clip(to: CGRect(x: LEDMatrixLine.progressStart, y: 0,
                                            width: LEDMatrixLine.width - LEDMatrixLine.progressStart, height: LEDMatrixLine.height))
                 }
                 let value = NSAttributedString(string: String(text.uppercased().prefix(LEDMatrixLine.cells)),
                     attributes: [.font: LEDMatrixLine.nativeFont, .foregroundColor: color, .kern: 0])
-                value.draw(at: NSPoint(x: 0, y: (LEDMatrixLine.height - value.size().height) / 2))
+                value.draw(at: NSPoint(x: centered ? (LEDMatrixLine.width - value.size().width) / 2 : 0, y: (LEDMatrixLine.height - value.size().height) / 2))
             }
         }
 

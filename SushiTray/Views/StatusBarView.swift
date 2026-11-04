@@ -60,7 +60,7 @@ struct StatusBarView: View {
                     ModelStateLine(state: .ready)
                 }
                 if displayedModelState == .loading {
-                    LEDMatrixLine(text: "SushiTray", color: ink)
+                    LEDMatrixLine(text: "SushiTray", color: ink, centered: true)
                         .help("SushiTray · loading model")
                 } else {
                     RateLine(
@@ -127,7 +127,7 @@ private struct MetricBar: View {
                 let fill = max(0, min(1, fraction)) * h
                 ZStack(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(ink.opacity(muted ? 0.2 : 0.28))
+                        .fill(Color.white.opacity(Double(muted ? TrayPalette.mutedTrackOpacity : TrayPalette.trackOpacity)))
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                         .fill(ink.opacity(muted ? 0.45 : 0.95))
                         .frame(height: max(fill, fraction > 0 ? 2 : 0))
@@ -203,7 +203,7 @@ struct ModelStateLine: View {
     private var label: String { state == .unloaded ? "idle" : state.rawValue }
 
     var body: some View {
-        LEDMatrixLine(text: "S: \(label)", color: color, shimmering: state == .loading)
+        LEDMatrixLine(text: label, color: color, shimmering: state == .loading, centered: true)
             .help("Model status: \(label)")
             .accessibilityLabel("Model status")
             .accessibilityValue(label)

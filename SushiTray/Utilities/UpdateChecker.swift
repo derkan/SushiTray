@@ -163,8 +163,8 @@ enum UpdateChecker {
         return (installed, installed)
     }
 
-    private static func installedSushiVersion() async -> String? {
-        guard let binary = SushiBinary.resolve() else { return nil }
+    static func installedSushiVersion(binary: String? = nil) async -> String? {
+        guard let binary = binary ?? SushiBinary.resolve() else { return nil }
         let (_, out) = await runCapture(executable: binary, arguments: ["--version"])
         // "sushi 1.1.1"
         if let match = out.range(of: #"sushi\s+([\d.]+)"#, options: .regularExpression) {

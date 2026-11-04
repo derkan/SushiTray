@@ -326,10 +326,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func showAbout() {
+        let binary = CommandTokenizer.tokenize(config.serveCommand).first
+            .flatMap { SushiBinary.resolve(fromCommandToken: $0) }
+        Task { @MainActor in
+            let version: String?
+            if let binary { version = await UpdateChecker.installedSushiVersion(binary: binary) }
+            else { version = nil }
+            presentAbout(sushiVersion: version)
+        }
+    }
+
+    private func presentAbout(sushiVersion: String?) {
         let alert = NSAlert()
         alert.messageText = "SushiTray"
         alert.informativeText =
-            "Menu bar controller for the sushi AI server.\nVersion \(UpdateChecker.appVersion)"
+            "Menu bar controller for the sushi AI server.\nSushiTray: \(UpdateChecker.appVersion)\nSushi: \(sushiVersion ?? "Not available")"
         alert.alertStyle = .informational
 
         let repoURL = URL(string: "https://github.com/derkan/SushiTray")!
