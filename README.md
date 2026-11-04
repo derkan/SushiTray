@@ -9,7 +9,7 @@ Start and stop `sushi serve` from the tray, watch live prefill/decode tok/s, bro
 </p>
 
 <p align="center">
-  <img src="assets/sushitray-menu.png" alt="SushiTray dropdown showing live decode and prefill speeds, GPU and RAM usage, and server controls" width="258" />
+  <img src="assets/sushitray-menu.png" alt="SushiTray menu bar indicators and dropdown showing live decode and prefill speeds, GPU and RAM usage, and server controls" width="266" />
 </p>
 
 ## Install
