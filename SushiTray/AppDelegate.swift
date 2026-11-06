@@ -305,6 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let window = settingsWindow {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            window.makeFirstResponder(nil)
             return
         }
 
@@ -319,6 +320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Open without automatically highlighting the first focusable control (the GitHub link).
+        window.makeFirstResponder(nil)
     }
 
     @objc private func checkForUpdatesMenu() {
@@ -450,6 +453,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         indicator.isIndeterminate = true
         indicator.startAnimation(nil)
         alert.accessoryView = indicator
+        // Showing the window directly bypasses runModal's alert layout.
+        alert.layout()
+        for button in alert.buttons {
+            button.isEnabled = false
+            button.isHidden = true
+        }
         return alert
     }
 
