@@ -243,40 +243,9 @@ enum UpdateChecker {
         SushiBinary.clearCache()
         let newVersion = await installedSushiVersion()
 
-        if let fromVersion, let newVersion, compareVersions(newVersion, fromVersion) > 0 {
-            return ComponentResult(
-                name: "sushi",
-                from: fromVersion,
-                to: newVersion,
-                outcome: .updated,
-                detail: nil
-            )
-        }
-        if exitCode == 0, let expected, let newVersion, compareVersions(newVersion, expected) >= 0 {
-            return ComponentResult(
-                name: "sushi",
-                from: fromVersion,
-                to: newVersion,
-                outcome: .updated,
-                detail: nil
-            )
-        }
-        if exitCode == 0, newVersion != nil {
-            // brew may report "already installed" with exit 0 — treat as updated when we asked to upgrade.
-            return ComponentResult(
-                name: "sushi",
-                from: fromVersion,
-                to: newVersion ?? expected,
-                outcome: .updated,
-                detail: nil
-            )
-        }
-        return ComponentResult(
-            name: "sushi",
-            from: fromVersion,
-            to: expected,
-            outcome: .failed,
-            detail: shortFailureDetail(from: output, exitCode: exitCode)
+        return verifiedUpdateResult(
+            name: "sushi", from: fromVersion, expected: expected,
+            installed: newVersion, exitCode: exitCode, output: output
         )
     }
 
@@ -287,21 +256,11 @@ enum UpdateChecker {
                 arguments: ["upgrade", "--cask", "sushitray"],
                 fallback: "/usr/local/bin/brew"
             )
-            if exitCode == 0 {
-                return ComponentResult(
-                    name: "SushiTray",
-                    from: from,
-                    to: expected,
-                    outcome: .updated,
-                    detail: nil
-                )
-            }
-            return ComponentResult(
-                name: "SushiTray",
-                from: from,
-                to: expected,
-                outcome: .failed,
-                detail: shortFailureDetail(from: output, exitCode: exitCode)
+            // Bundle.main caches Info.plist; read the replaced bundle directly from disk.
+            return verifiedUpdateResult(
+                name: "SushiTray", from: from, expected: expected,
+                installed: installedAppVersion(at: Bundle.main.bundleURL),
+                exitCode: exitCode, output: output
             )
         }
         // Not brew-installed: open releases page.
@@ -316,6 +275,47 @@ enum UpdateChecker {
             to: expected,
             outcome: .openedReleases,
             detail: nil
+        )
+    }
+
+    static func installedAppVersion(at bundleURL: URL) -> String? {
+        let plistURL = bundleURL.appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plistURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+              let info = plist as? [String: Any]
+        else { return nil }
+        return info["CFBundleShortVersionString"] as? String
+    }
+
+    /// A successful command can be a no-op when Homebrew trails GitHub Releases.
+    static func verifiedUpdateResult(
+        name: String, from: String?, expected: String?, installed: String?,
+        exitCode: Int32, output: String
+    ) -> ComponentResult {
+        let reachedTarget: Bool
+        if let installed, let expected {
+            reachedTarget = compareVersions(installed, expected) >= 0
+        } else if let installed, let from {
+            reachedTarget = compareVersions(installed, from) > 0
+        } else {
+            reachedTarget = false
+        }
+        let succeeded = exitCode == 0 && reachedTarget
+        let detail: String?
+        if succeeded {
+            detail = nil
+        } else if exitCode != 0 {
+            detail = shortFailureDetail(from: output, exitCode: exitCode)
+        } else if let installed {
+            detail = "Installed version is still \(installed)" +
+                (expected.map { "; expected \($0)." } ?? ".") +
+                " Homebrew may be behind GitHub, or a different copy is installed."
+        } else {
+            detail = "Could not verify the installed version after updating."
+        }
+        return ComponentResult(
+            name: name, from: from, to: installed ?? expected,
+            outcome: succeeded ? .updated : .failed, detail: detail
         )
     }
 
