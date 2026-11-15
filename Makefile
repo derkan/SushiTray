@@ -5,9 +5,6 @@ SWIFT_FLAGS ?=
 RELEASE_BRANCH ?= main
 export VERSION RELEASE_BRANCH
 CONFIG ?= debug
-# Prefer classic SPM layout; fall back to Xcode-integrated `.build/debug` symlink.
-BUILD_DIR_CLASSIC := .build/arm64-apple-macosx/$(CONFIG)
-BUILD_DIR_XCODE := .build/$(CONFIG)
 # Keep the .app under .build so Spotlight does not list a second copy beside /Applications.
 APP_DIR := .build/app
 APP_BUNDLE := $(APP_DIR)/SushiTray.app
@@ -17,20 +14,6 @@ ICONS_DIR := $(APP_BUNDLE)/Contents/Resources
 ICON_SRC := assets/icon.png
 APP_VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist 2>/dev/null || echo 0.0.0)
 DIST_ZIP := dist/SushiTray-$(APP_VERSION).zip
-
-define resolve_binary
-$(shell \
-  CFG="$(CONFIG)"; \
-  PROD=$$(echo "$$CFG" | awk '{print toupper(substr($$0,1,1)) substr($$0,2)}'); \
-  for p in \
-    ".build/arm64-apple-macosx/$$CFG/SushiTray" \
-    ".build/$$CFG/SushiTray" \
-    ".build/out/Products/$$PROD/SushiTray" \
-  ; do \
-    if [ -x "$$p" ]; then echo "$$p"; exit 0; fi; \
-  done; \
-  echo ".build/arm64-apple-macosx/$$CFG/SushiTray")
-endef
 
 build:
 	$(SWIFT) build $(SWIFT_FLAGS) -c release --product SushiTray
@@ -47,7 +30,7 @@ bundle:
 	@mkdir -p $(APP_BUNDLE)/Contents/MacOS
 	@mkdir -p $(ICONS_DIR)
 	@touch $(APP_DIR)/.metadata_never_index
-	@BIN="$(resolve_binary)"; \
+	@BIN="$$($(SWIFT) build $(SWIFT_FLAGS) -c $(CONFIG) --show-bin-path)/SushiTray"; \
 	  if [ ! -x "$$BIN" ]; then echo "Binary not found at $$BIN"; exit 1; fi; \
 	  cp "$$BIN" $(APP_PATH)
 	@chmod +x $(APP_PATH)
