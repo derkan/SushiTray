@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var isRefreshingModels = false
     private var nextModelsRefresh = Date.distantPast
     private var isStatusMenuOpen = false
+    private var isPresentingUpdateReport = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -368,17 +369,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Checks sushi CLI + SushiTray GitHub releases. When `interactive`, always shows a result alert.
     private func checkForUpdates(interactive: Bool) {
-        Task {
+        Task { @MainActor in
+            guard !isPresentingUpdateReport else { return }
             let report = await UpdateChecker.check()
-            await MainActor.run {
-                self.presentUpdateReport(report, interactive: interactive)
-            }
+            await presentUpdateReport(report, interactive: interactive)
         }
     }
 
-    private func presentUpdateReport(_ report: UpdateChecker.Report, interactive: Bool) {
+    @MainActor
+    private func presentUpdateReport(_ report: UpdateChecker.Report, interactive: Bool) async {
+        guard !isPresentingUpdateReport, report.hasAnyUpdate || interactive else { return }
+        isPresentingUpdateReport = true
+        defer { isPresentingUpdateReport = false }
         if !report.hasAnyUpdate {
-            guard interactive else { return }
             let alert = NSAlert()
             alert.messageText = "You’re up to date"
             alert.informativeText = report.summary
@@ -391,41 +394,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert()
         alert.messageText = "Updates available"
         alert.informativeText = report.summary + "\n\nUpdate now via Homebrew when possible?"
+        if report.sushiNeedsUpdate, serverManager.isRunning {
+            alert.informativeText += "\n\nThe server will stop and restart after the update attempt."
+        }
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Update")
         alert.addButton(withTitle: "Later")
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
 
-        Task { @MainActor in
-            await self.runUpdateFlow(report: report)
-        }
+        await runUpdateFlow(report: report)
     }
 
     @MainActor
     private func runUpdateFlow(report: UpdateChecker.Report) async {
-        let wasRunning = serverManager.isRunning
+        let restartServer = report.sushiNeedsUpdate && serverManager.isRunning
+        serverManager.isUpdatingSushi = report.sushiNeedsUpdate
+        updateMainMenuLabels()
         let progress = makeUpdateProgressAlert()
+        if restartServer {
+            progress.informativeText = "Stopping the server before installing updates."
+            progress.layout()
+        }
         let progressWindow = progress.window
         progressWindow.center()
         progressWindow.level = NSWindow.Level.modalPanel
         NSApp.activate(ignoringOtherApps: true)
         progressWindow.makeKeyAndOrderFront(nil)
 
-        let result = await UpdateChecker.applyUpdates(from: report)
+        if report.sushiNeedsUpdate {
+            await withCheckedContinuation { continuation in
+                serverManager.stop { continuation.resume() }
+            }
+            if restartServer {
+                progress.informativeText = "Installing updates. This may take a minute."
+                progress.layout()
+            }
+        }
 
-        progressWindow.orderOut(nil)
+        let result = await UpdateChecker.applyUpdates(from: report)
+        serverManager.isUpdatingSushi = false
 
         var bodyLines = result.summaryLines
-        if result.sushiUpdated, wasRunning {
-            serverManager.restart(command: config.serveCommand)
-            bodyLines.append("Server restarted with the new sushi binary.")
+        if restartServer {
+            serverManager.start(command: config.serveCommand)
+            if serverManager.isRunning {
+                bodyLines.append("Server restarted.")
+            } else if let error = serverManager.errorMessage {
+                bodyLines.append("Server restart failed: \(error)")
+            }
         }
+        updateMainMenuLabels()
+        progressWindow.orderOut(nil)
 
         let done = NSAlert()
         done.messageText = updateResultTitle(result)
         done.informativeText = bodyLines.isEmpty ? "Done." : bodyLines.joined(separator: "\n")
-        done.alertStyle = result.hasFailure ? .warning : .informational
+        done.alertStyle = result.hasFailure || (restartServer && !serverManager.isRunning)
+            ? .warning : .informational
 
         if result.appUpdated {
             done.addButton(withTitle: "Relaunch SushiTray")
@@ -493,6 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             (item.view as? NSButton)?.isEnabled = item.isEnabled
         }
         startStopMenuItem.title = serverManager.isRunning ? "Stop Server" : "Start Server"
+        startStopMenuItem.isEnabled = !serverManager.isUpdatingSushi
         startStopMenuItem.toolTip = serverManager.errorMessage ?? serverManager.metricsError
         openChatMenuItem.isHidden = !serverManager.isReady
         openChatMenuItem.isEnabled = serverManager.isReady

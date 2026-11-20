@@ -6,6 +6,7 @@ final class ServerManager: ObservableObject {
     static let shared = ServerManager()
 
     @Published private(set) var isRunning = false
+    @Published var isUpdatingSushi = false
     /// True while the Sushi 1.5 metrics endpoint answers.
     @Published private(set) var isReady = false
     @Published private(set) var modelState: ModelsClient.LoadState?
@@ -32,6 +33,7 @@ final class ServerManager: ObservableObject {
     let logTailer = LogTailer(maxLines: 100)
     private var process: Process?
     private var intentionalStop = false
+    private var stopCompletions: [() -> Void] = []
     private var metricsTracker = MetricsTracker()
     private var metricsTask: Task<Void, Never>?
     private var launchConnection: ServeCommandParser.Connection?
@@ -47,7 +49,7 @@ final class ServerManager: ObservableObject {
     }
 
     func start(command: String) {
-        guard !isRunning else { return }
+        guard process == nil, !isUpdatingSushi else { return }
         intentionalStop = false
         errorMessage = nil
         chatURL = nil
@@ -71,17 +73,15 @@ final class ServerManager: ObservableObject {
     }
 
     func stop(completion: (() -> Void)? = nil) {
-        intentionalStop = true
-        let proc = process
-        process = nil
-        markStopped()
-        if let proc, proc.isRunning {
-            proc.gracefulTerminate {
-                DispatchQueue.main.async { completion?() }
-            }
-        } else {
+        guard let process else {
             completion?()
+            return
         }
+        if let completion { stopCompletions.append(completion) }
+        guard !intentionalStop else { return }
+        intentionalStop = true
+        markStopped()
+        process.gracefulTerminate()
     }
 
     func stopSynchronously(timeout: TimeInterval = 3.5) {
@@ -103,6 +103,7 @@ final class ServerManager: ObservableObject {
     }
 
     func restart(command: String) {
+        guard !isUpdatingSushi else { return }
         stop { [weak self] in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 self?.start(command: command)
@@ -147,8 +148,11 @@ final class ServerManager: ObservableObject {
                     if !self.intentionalStop {
                         self.errorMessage =
                             "Server exited unexpectedly (code \(proc.terminationStatus))."
+                        self.markStopped()
                     }
-                    self.markStopped()
+                    let completions = self.stopCompletions
+                    self.stopCompletions.removeAll()
+                    completions.forEach { $0() }
                 }
             }
         }

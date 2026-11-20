@@ -83,10 +83,10 @@ struct SettingsView: View {
                 Spacer()
                 if serverManager.isRunning {
                     Button("Restart") { saveAndRestart() }
-                        .disabled(sushiMissing)
+                        .disabled(sushiMissing || serverManager.isUpdatingSushi)
                 } else {
                     Button("Start") { saveAndStart() }
-                        .disabled(sushiMissing)
+                        .disabled(sushiMissing || serverManager.isUpdatingSushi)
                 }
             }
 
