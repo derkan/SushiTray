@@ -38,6 +38,7 @@ brew install --cask sushitray
 Upgrade later with:
 
 ```bash
+brew update
 brew upgrade --cask sushitray
 ```
 
@@ -163,8 +164,9 @@ clean worktree if you have unrelated edits.
 
 GitHub Actions (`.github/workflows/release.yml`) tests and builds the tagged
 commit, then publishes the ZIP with the committed release notes, installation
-instructions and checksum. If `HOMEBREW_TAP_TOKEN` is configured, it also
-updates [derkan/homebrew-tap](https://github.com/derkan/homebrew-tap).
+instructions and checksum. It updates the Homebrew cask using the
+`HOMEBREW_TAP_DEPLOY_KEY` Actions secret, which holds a write deploy key for
+[derkan/homebrew-tap](https://github.com/derkan/homebrew-tap).
 
 Open in Xcode: `make xcode`
 

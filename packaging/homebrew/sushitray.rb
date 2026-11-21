@@ -3,7 +3,7 @@
 #   brew tap derkan/tap
 #   brew install --cask sushitray
 #
-# After a release, CI updates version/sha256 when HOMEBREW_TAP_TOKEN is set.
+# After a release, CI updates version/sha256 using HOMEBREW_TAP_DEPLOY_KEY.
 # Manual bump:
 #   VERSION=1.0.2
 #   SHA=$(curl -sL "https://github.com/derkan/SushiTray/releases/download/v${VERSION}/SushiTray-${VERSION}.zip" | shasum -a 256 | awk '{print $1}')

@@ -65,6 +65,7 @@ jobs:
           Or upgrade:
 
           \`\`\`bash
+          brew update
           brew upgrade --cask sushitray
           \`\`\`
 
@@ -83,31 +84,32 @@ jobs:
           fail_on_unmatched_files: true
           body_path: ${{ runner.temp }}/release-body.md
 
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: derkan/homebrew-tap
+          ref: main
+          path: homebrew-tap
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
       - name: Update Homebrew tap cask
+        working-directory: homebrew-tap
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.meta.outputs.version }}
           SHA256: ${{ steps.meta.outputs.sha256 }}
         run: |
           set -euo pipefail
-          if [ -z "$GH_TOKEN" ]; then
-            echo "HOMEBREW_TAP_TOKEN is not configured; skipping tap update."
-            exit 0
-          fi
-          TMP=$(mktemp -d)
-          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/derkan/homebrew-tap.git" "$TMP"
-          CASK="$TMP/Casks/sushitray.rb"
-          sed -i '' \
-            -e "s/version \".*\"/version \"${VERSION}\"/" \
-            -e "s/sha256 \".*\"/sha256 \"${SHA256}\"/" \
+          CASK="Casks/sushitray.rb"
+          /usr/bin/sed -i '' \
+            -e "s/^  version \".*\"$/  version \"${VERSION}\"/" \
+            -e "s/^  sha256 \".*\"$/  sha256 \"${SHA256}\"/" \
             "$CASK"
-          cd "$TMP"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/sushitray.rb
+          git add -- "$CASK"
           if git diff --cached --quiet; then
             echo "Cask already up to date"
           else
             git commit -m "sushitray ${VERSION}"
-            git push
           fi
+          git push origin HEAD:refs/heads/main

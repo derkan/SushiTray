@@ -250,10 +250,23 @@ enum UpdateChecker {
     }
 
     private static func runUpdateApp(from: String?, expected: String?) async -> ComponentResult {
-        if await brewHasCask("sushitray") {
+        let cask = "derkan/tap/sushitray"
+        if await brewHasCask(cask) {
+            // An upgrade alone can use cached tap metadata and leave the app unchanged.
+            let (refreshCode, refreshOutput) = await runCapture(
+                executable: "/opt/homebrew/bin/brew",
+                arguments: ["update"],
+                fallback: "/usr/local/bin/brew"
+            )
+            guard refreshCode == 0 else {
+                return ComponentResult(
+                    name: "SushiTray", from: from, to: expected, outcome: .failed,
+                    detail: "Homebrew refresh failed: " + shortFailureDetail(from: refreshOutput, exitCode: refreshCode)
+                )
+            }
             let (exitCode, output) = await runCapture(
                 executable: "/opt/homebrew/bin/brew",
-                arguments: ["upgrade", "--cask", "sushitray"],
+                arguments: ["upgrade", "--cask", cask],
                 fallback: "/usr/local/bin/brew"
             )
             // Bundle.main caches Info.plist; read the replaced bundle directly from disk.
