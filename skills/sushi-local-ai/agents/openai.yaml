@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sushi Local AI"
+  short_description: "Choose and tune Sushi models for your Mac"
+  default_prompt: "Use $sushi-local-ai to inspect my Mac, recommend a Sushi model and launch parameters, and configure SushiTray."

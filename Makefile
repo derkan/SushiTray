@@ -11,7 +11,10 @@ APP_BUNDLE := $(APP_DIR)/SushiTray.app
 APP_PATH := $(APP_BUNDLE)/Contents/MacOS/SushiTray
 PLIST_PATH := $(APP_BUNDLE)/Contents/Info.plist
 ICONS_DIR := $(APP_BUNDLE)/Contents/Resources
-ICON_SRC := assets/icon.png
+ICON_SRC := assets/icon.svg
+ICON_PNG := assets/icon.png
+APP_ICON_SET := SushiTray/Assets.xcassets/AppIcon.appiconset
+STATUS_ICON_SET := SushiTray/Assets.xcassets/StatusBarIcon.imageset
 APP_VERSION := $(shell /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' SushiTray/Info.plist 2>/dev/null || echo 0.0.0)
 DIST_ZIP := dist/SushiTray-$(APP_VERSION).zip
 
@@ -86,34 +89,23 @@ release:
 	@python3 scripts/release.py
 
 icons:
-	@echo "Generating status bar icons (original colors)..."
-	@mkdir -p SushiTray/Assets.xcassets/StatusBarIcon.imageset
-	@mkdir -p SushiTray/Assets.xcassets/AppIcon.appiconset
-	@magick $(ICON_SRC) -resize 36x36 \
-		SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar@2x.png
-	@magick $(ICON_SRC) -resize 18x18 \
-		SushiTray/Assets.xcassets/StatusBarIcon.imageset/statusbar.png
-	@echo "Generating app icons..."
-	sips -z 16 16 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-16.png >/dev/null
-	sips -z 32 32 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-32.png >/dev/null
-	sips -z 128 128 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-128.png >/dev/null
-	sips -z 256 256 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-256.png >/dev/null
-	sips -z 512 512 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-512.png >/dev/null
-	sips -z 1024 1024 $(ICON_SRC) --out SushiTray/Assets.xcassets/AppIcon.appiconset/app-1024.png >/dev/null
-	@echo "Generating AppIcon.icns..."
-	@rm -rf /tmp/SushiTray-AppIcon.iconset
-	@mkdir -p /tmp/SushiTray-AppIcon.iconset
-	@sips -z 16 16 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/icon_16x16.png >/dev/null
-	@sips -z 32 32 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/diana.v@example.org >/dev/null
-	@sips -z 32 32 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/icon_32x32.png >/dev/null
-	@sips -z 64 64 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/ivan.p@example.net >/dev/null
-	@sips -z 128 128 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/icon_128x128.png >/dev/null
-	@sips -z 256 256 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/wendy.h@example.net >/dev/null
-	@sips -z 256 256 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/icon_256x256.png >/dev/null
-	@sips -z 512 512 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/wendy.h@example.net >/dev/null
-	@sips -z 512 512 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/icon_512x512.png >/dev/null
-	@sips -z 1024 1024 $(ICON_SRC) --out /tmp/SushiTray-AppIcon.iconset/walt.e@example.net >/dev/null
-	@iconutil -c icns /tmp/SushiTray-AppIcon.iconset -o SushiTray/AppIcon.icns
+	@mkdir -p $(APP_ICON_SET) $(STATUS_ICON_SET)
+	@magick -background none $(ICON_SRC) -strip PNG32:$(APP_ICON_SET)/app-1024.png
+	@set -e; for size in 16 32 64 128 256 512; do \
+		magick $(APP_ICON_SET)/app-1024.png -resize "$${size}x$${size}" \
+			-strip PNG32:$(APP_ICON_SET)/app-$$size.png; \
+	done
+	@cp $(APP_ICON_SET)/app-256.png $(ICON_PNG)
+	@magick $(APP_ICON_SET)/app-1024.png -resize 18x18 -strip PNG32:$(STATUS_ICON_SET)/statusbar.png
+	@magick $(APP_ICON_SET)/app-1024.png -resize 36x36 -strip PNG32:$(STATUS_ICON_SET)/statusbar@2x.png
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+		iconset="$$tmp/AppIcon.iconset"; mkdir "$$iconset"; \
+		for size in 16 32 128 256 512; do \
+			doubled=$$((size * 2)); \
+			cp "$(APP_ICON_SET)/app-$$size.png" "$$iconset/icon_$${size}x$${size}.png"; \
+			cp "$(APP_ICON_SET)/app-$$doubled.png" "$$iconset/icon_$${size}x$${size}@2x.png"; \
+		done; \
+		iconutil -c icns "$$iconset" -o SushiTray/AppIcon.icns
 	@echo "Icons generated."
 
 help:
@@ -126,5 +118,5 @@ help:
 	@echo "  dist     release zip → dist/SushiTray-\$$(version).zip"
 	@echo "  test     run regression tests"
 	@echo "  release VERSION=X.Y.Z  test, build, bump, commit, tag and push"
-	@echo "  icons    regenerate from assets/icon.png"
+	@echo "  icons    regenerate from assets/icon.svg"
 	@echo "  clean / resolve / xcode"

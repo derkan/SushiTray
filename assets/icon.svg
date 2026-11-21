@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>SushiTray</title>
+  <desc>Three coral activity bars above an ivory tray on a charcoal tile.</desc>
+  <rect x="64" y="64" width="896" height="896" rx="204" fill="#27313A"/>
+  <rect x="70" y="70" width="884" height="884" rx="198" fill="none" stroke="#49535C" stroke-width="12"/>
+
+  <g fill="#FF9979">
+    <rect x="318" y="461" width="96" height="120" rx="27"/>
+    <rect x="464" y="373" width="96" height="208" rx="27"/>
+    <rect x="610" y="285" width="96" height="296" rx="27"/>
+  </g>
+
+  <path d="M264 570v27c0 56 45 101 101 101h294c56 0 101-45 101-101v-27"
+        fill="none" stroke="#F8EDD9" stroke-width="66" stroke-linecap="round"/>
+</svg>
